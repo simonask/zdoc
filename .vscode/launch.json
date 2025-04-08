@@ -1,0 +1,73 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'zdocument'",
+            "sourceLanguages": [
+                "rust"
+            ],
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=zdocument"
+                ],
+                "filter": {
+                    "name": "zdocument",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "_NO_DEBUG_HEAP": "1"
+            },
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'builder'",
+            "sourceLanguages": [
+                "rust"
+            ],
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=builder",
+                    "--package=zdocument"
+                ],
+                "filter": {
+                    "name": "builder",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "_NO_DEBUG_HEAP": "1"
+            },
+        },
+        {
+            "type": "cppvsdbg",
+            "request": "launch",
+            "name": "(MSVC) Debug integration test 'builder'",
+            "preLaunchTask": "cargo build",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceRoot}/target/debug/deps/builder-a3da1bdf57e0552f.exe",
+            "environment": [
+                {
+                    "name": "_NO_DEBUG_HEAP",
+                    "value": "1"
+                }
+            ],
+        }
+    ]
+}
