@@ -37,6 +37,7 @@ impl RawDocumentBuffer {
             unaligned_prefix.len()
         }
 
+        #[cfg_attr(coverage, coverage(off))] // This function is unreachable outside of Miri.
         fn align_buffer(mut buffer: Vec<u8>) -> (Vec<u8>, usize) {
             // Preallocate the new buffer so there is space for the alignment,
             // and then recompute the alignment adjustment. We need to do this
@@ -59,6 +60,8 @@ impl RawDocumentBuffer {
         // most real-world allocators, which return 16-byte aligned buffers, but
         // the Miri allocator for instance does not.
         let mut adjust_alignment = unaligned_prefix(&buffer);
+
+        #[cfg_attr(coverage, coverage(off))] // This condition is always false outside Miri.
         if adjust_alignment != 0 {
             (buffer, adjust_alignment) = align_buffer(buffer);
         }

@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
+#![cfg_attr(coverage, feature(coverage_attribute))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
