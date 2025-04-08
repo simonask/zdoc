@@ -61,9 +61,12 @@ impl RawDocumentBuffer {
         // the Miri allocator for instance does not.
         let mut adjust_alignment = unaligned_prefix(&buffer);
 
-        #[cfg_attr(coverage, coverage(off))] // This condition is always false outside Miri.
-        if adjust_alignment != 0 {
-            (buffer, adjust_alignment) = align_buffer(buffer);
+        #[cfg_attr(coverage, coverage(off))]
+        {
+            // This condition is always false outside Miri.
+            if adjust_alignment != 0 {
+                (buffer, adjust_alignment) = align_buffer(buffer);
+            }
         }
 
         debug_assert_eq!(

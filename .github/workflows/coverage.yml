@@ -1,7 +1,8 @@
-name: coverage
+name: Coverage
 on: [push, pull_request]
 jobs:
   coverage:
+    name: Coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
