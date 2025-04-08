@@ -1,7 +1,7 @@
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 use bytemuck::{cast_slice, from_bytes, pod_align_to};
-use core::{mem::offset_of, ops::Deref};
+use core::mem::offset_of;
 
 use crate::{CorruptError, CorruptErrorKind, Error};
 
@@ -90,7 +90,7 @@ impl RawDocumentBuffer {
 }
 
 #[cfg(feature = "alloc")]
-impl Deref for RawDocumentBuffer {
+impl core::ops::Deref for RawDocumentBuffer {
     type Target = RawDocument;
 
     #[inline]

@@ -1,5 +1,3 @@
-use core::ops::Deref;
-
 use crate::Error;
 
 #[cfg(feature = "alloc")]
@@ -91,13 +89,15 @@ impl DocumentBuffer {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl core::fmt::Debug for DocumentBuffer {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.as_document().fmt(f)
     }
 }
 
-impl Deref for DocumentBuffer {
+#[cfg(feature = "alloc")]
+impl core::ops::Deref for DocumentBuffer {
     type Target = Document;
 
     #[inline]
@@ -106,6 +106,7 @@ impl Deref for DocumentBuffer {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl TryFrom<raw::RawDocumentBuffer> for DocumentBuffer {
     type Error = Error;
 
