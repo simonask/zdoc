@@ -450,9 +450,13 @@ impl RawDocument {
     /// # Errors
     ///
     /// If the document header is not valid, this returns an error.
-    #[inline]
     #[expect(clippy::too_many_lines)]
     pub fn check_header(&self) -> Result<(), ValidationError> {
+        #[inline]
+        const fn is_overlapping(a: core::ops::Range<usize>, b: core::ops::Range<usize>) -> bool {
+            (a.start < b.end) & (b.start < a.end)
+        }
+
         // Check the safety invariants.
         debug_assert!(self.bytes.len() >= size_of::<Header>());
         #[cfg(debug_assertions)]
@@ -506,14 +510,16 @@ impl RawDocument {
                 ValidationErrorKind::HeaderNodesOffset.at_offset(offset_of!(Header, nodes_offset))
             );
         }
-        if (nodes_offset as usize)
-            .checked_add(nodes_len as usize * size_of::<codec::Node>())
-            .is_none_or(|end| end > self.bytes.len())
-        {
+
+        let Some(nodes_end) = (nodes_len as usize)
+            .checked_mul(size_of::<codec::Node>())
+            .and_then(|len| len.checked_add(nodes_offset as usize))
+            .filter(|end| *end <= self.bytes.len())
+        else {
             return Err(
                 ValidationErrorKind::HeaderNodesLen.at_offset(offset_of!(Header, nodes_len))
             );
-        }
+        };
 
         if args_offset % 4 != 0 {
             return Err(
@@ -530,12 +536,13 @@ impl RawDocument {
                 ValidationErrorKind::HeaderArgsOffset.at_offset(offset_of!(Header, args_offset))
             );
         }
-        if (args_offset as usize)
-            .checked_add(args_len as usize * size_of::<codec::Arg>())
-            .is_none_or(|end| end > self.bytes.len())
-        {
+        let Some(args_end) = (args_len as usize)
+            .checked_mul(size_of::<codec::Arg>())
+            .and_then(|len| len.checked_add(args_offset as usize))
+            .filter(|end| *end <= self.bytes.len())
+        else {
             return Err(ValidationErrorKind::HeaderArgsLen.at_offset(offset_of!(Header, args_len)));
-        }
+        };
 
         if strings_offset as usize > self.bytes.len() {
             return Err(ValidationErrorKind::HeaderStringsOffset
@@ -545,14 +552,14 @@ impl RawDocument {
             return Err(ValidationErrorKind::HeaderStringsOffset
                 .at_offset(offset_of!(Header, strings_offset)));
         }
-        if (strings_offset as usize)
+        let Some(strings_end) = (strings_offset as usize)
             .checked_add(strings_len as usize)
-            .is_none_or(|end| end > self.bytes.len())
-        {
+            .filter(|end| *end <= self.bytes.len())
+        else {
             return Err(
                 ValidationErrorKind::HeaderStringsLen.at_offset(offset_of!(Header, strings_len))
             );
-        }
+        };
 
         if binary_offset as usize > self.bytes.len() {
             return Err(ValidationErrorKind::HeaderBinaryOffset
@@ -562,21 +569,67 @@ impl RawDocument {
             return Err(ValidationErrorKind::HeaderBinaryOffset
                 .at_offset(offset_of!(Header, binary_offset)));
         }
-        if (binary_offset as usize)
+        let Some(binary_end) = (binary_offset as usize)
             .checked_add(binary_len as usize)
-            .is_none_or(|end| end > self.bytes.len())
-        {
+            .filter(|end| *end <= self.bytes.len())
+        else {
             return Err(
                 ValidationErrorKind::HeaderBinaryLen.at_offset(offset_of!(Header, binary_len))
             );
-        }
+        };
 
         if root_node_index != 0 && root_node_index >= nodes_len {
             return Err(ValidationErrorKind::HeaderRootNodeOutOfBounds
                 .at_offset(offset_of!(Header, root_node_index)));
         }
 
-        // TODO: Check overlap.
+        if is_overlapping(
+            nodes_offset as usize..nodes_end,
+            args_offset as usize..args_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, args_offset)));
+        }
+
+        if is_overlapping(
+            nodes_offset as usize..nodes_end,
+            strings_offset as usize..strings_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, strings_offset)));
+        }
+
+        if is_overlapping(
+            nodes_offset as usize..nodes_end,
+            binary_offset as usize..binary_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, binary_offset)));
+        }
+
+        if is_overlapping(
+            args_offset as usize..args_end,
+            strings_offset as usize..strings_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, strings_offset)));
+        }
+
+        if is_overlapping(
+            args_offset as usize..args_end,
+            binary_offset as usize..binary_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, binary_offset)));
+        }
+
+        if is_overlapping(
+            strings_offset as usize..strings_end,
+            binary_offset as usize..binary_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, binary_offset)));
+        }
 
         if reserved1 != 0 {
             return Err(ValidationErrorKind::HeaderReservedFieldsMustBeZero

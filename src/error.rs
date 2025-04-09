@@ -75,6 +75,8 @@ pub enum ValidationErrorKind {
     HeaderRootNodeOutOfBounds,
     #[error("header reserved fields must be zero")]
     HeaderReservedFieldsMustBeZero,
+    #[error("sections overlap")]
+    HeaderSectionsOverlap,
 
     #[error("range length overflow")]
     LengthOverflow,
