@@ -6,7 +6,7 @@ use zdocument::{ValueRef, builder::Builder, codec};
 fn empty() {
     let doc = Builder::new().build();
     assert!(doc.is_empty());
-    assert!(doc.as_bytes().is_empty());
+    assert_eq!(doc.as_bytes().len(), size_of::<codec::Header>());
 }
 
 #[test]

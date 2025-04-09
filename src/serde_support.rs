@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn unit() {
         let doc = to_document(&()).unwrap();
-        assert_eq!(doc.as_bytes().len(), 0);
+        assert_eq!(doc.as_bytes().len(), 64); // just the header
         assert!(doc.is_empty());
         let _: () = from_document(&doc).unwrap();
     }
