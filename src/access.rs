@@ -22,6 +22,12 @@ pub trait NodeRef<'a>: Sized + 'a {
         EntryRefIter::new(self.args(), self.children())
     }
 
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.entries().next().is_none()
+    }
+
+    #[inline]
     fn classify(&self) -> ClassifyNode {
         crate::classify::classify_node(self)
     }

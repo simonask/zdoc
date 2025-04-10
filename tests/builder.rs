@@ -63,9 +63,9 @@ fn named_root() {
 fn dictionary() {
     let doc = Builder::new()
         .with_root(|root| {
-            root.push_named("key1", 123);
+            root.push_named_arg("key1", 123);
             root.push_named_with("dict", |dict| {
-                dict.push_named("key", 456);
+                dict.push_named_arg("key", 456);
             });
             root.push_named_with("list", |list| {
                 list.push(789);
@@ -75,10 +75,11 @@ fn dictionary() {
         .build();
 
     let nodes = doc.nodes();
-    assert_eq!(nodes.len(), 5);
+    assert_eq!(nodes.len(), 3);
     let root = doc.root();
     assert_eq!(root.raw_index(), 0);
-    assert_eq!(root.children().len(), 3);
+    assert_eq!(root.args().len(), 1);
+    assert_eq!(root.children().len(), 2);
     assert!(root.is_dictionary_like());
     assert_eq!(root.name(), None);
 
@@ -86,14 +87,14 @@ fn dictionary() {
     assert_eq!(key1.name(), Some("key1"));
     assert_eq!(key1.value(), Some(ValueRef::Int(123)));
 
-    let key1 = root.children().get(0).unwrap();
-    assert_eq!(key1.name(), Some("key1"));
-    assert_eq!(key1.value(), Some(ValueRef::Int(123)));
+    let key1 = root.args().get(0).unwrap();
+    assert_eq!(key1.name, Some("key1"));
+    assert_eq!(key1.value, ValueRef::Int(123));
 
     let dict = root.children().get("dict").unwrap();
     assert_eq!(dict.name(), Some("dict"));
-    assert_eq!(dict.children().len(), 1);
-    assert_eq!(dict.value(), None);
+    assert_eq!(dict.children().len(), 0);
+    assert_eq!(dict.args().len(), 1);
     let dict_key = dict.get("key").unwrap();
     assert_eq!(dict_key.value(), Some(ValueRef::Int(456)));
 
@@ -110,9 +111,9 @@ fn debug_display() {
     builder.with_root(|root| {
         root.set_ty("Root");
         root.set_name("root");
-        root.push_named("key1", 123);
+        root.push_named_arg("key1", 123);
         root.push_named_with("dict", |dict| {
-            dict.push_named("key", 456);
+            dict.push_named_arg("key", 456);
         });
         root.push_named_with("list", |list| {
             list.push(789);

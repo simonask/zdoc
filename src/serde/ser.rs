@@ -5,11 +5,11 @@ use alloc::{
 use serde::{Serialize as _, ser::Impossible};
 
 use crate::{
-    builder::{Entry, Node, Value},
+    builder::{Arg, Entry, Node, Value},
     serde::Error,
 };
 
-macro_rules! fwd_ser {
+macro_rules! fwd_ser_entry {
     ($function:ident, $value:ty) => {
         #[inline]
         #[allow(unused_mut)]
@@ -20,35 +20,38 @@ macro_rules! fwd_ser {
     };
 }
 
-impl<'a> serde::Serializer for &'a mut Entry<'static> {
+impl<'a, 'b> serde::Serializer for &'a mut Entry<'b> {
     type Ok = ();
     type Error = Error;
-    type SerializeSeq = SeqSerializer<'a>;
-    type SerializeTuple = SeqSerializer<'a>;
-    type SerializeTupleStruct = SeqSerializer<'a>;
-    type SerializeTupleVariant = SeqSerializer<'a>;
-    type SerializeMap = MapSerializer<'a>;
-    type SerializeStruct = &'a mut Node<'static>;
-    type SerializeStructVariant = &'a mut Node<'static>;
+    type SerializeSeq = SeqSerializer<'a, 'b>;
+    type SerializeTuple = SeqSerializer<'a, 'b>;
+    type SerializeTupleStruct = SeqSerializer<'a, 'b>;
+    type SerializeTupleVariant = SeqSerializer<'a, 'b>;
+    type SerializeMap = MapSerializer<'a, 'b>;
+    type SerializeStruct = &'a mut Node<'b>;
+    type SerializeStructVariant = &'a mut Node<'b>;
 
-    fwd_ser!(serialize_bool, bool);
-    fwd_ser!(serialize_i8, i8);
-    fwd_ser!(serialize_i16, i16);
-    fwd_ser!(serialize_i32, i32);
-    fwd_ser!(serialize_i64, i64);
-    fwd_ser!(serialize_u8, u8);
-    fwd_ser!(serialize_u16, u16);
-    fwd_ser!(serialize_u32, u32);
-    fwd_ser!(serialize_u64, u64);
-    fwd_ser!(serialize_f32, f32);
-    fwd_ser!(serialize_f64, f64);
-    fwd_ser!(serialize_char, char);
-    fwd_ser!(serialize_str, &str);
-    fwd_ser!(serialize_bytes, &[u8]);
+    fwd_ser_entry!(serialize_bool, bool);
+    fwd_ser_entry!(serialize_i8, i8);
+    fwd_ser_entry!(serialize_i16, i16);
+    fwd_ser_entry!(serialize_i32, i32);
+    fwd_ser_entry!(serialize_i64, i64);
+    fwd_ser_entry!(serialize_u8, u8);
+    fwd_ser_entry!(serialize_u16, u16);
+    fwd_ser_entry!(serialize_u32, u32);
+    fwd_ser_entry!(serialize_u64, u64);
+    fwd_ser_entry!(serialize_f32, f32);
+    fwd_ser_entry!(serialize_f64, f64);
+    fwd_ser_entry!(serialize_char, char);
+    fwd_ser_entry!(serialize_str, &str);
+    fwd_ser_entry!(serialize_bytes, &[u8]);
 
     #[inline]
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        *self = Entry::null();
+        *self = Entry::Arg(Arg {
+            name: None,
+            value: Value::Null,
+        });
         Ok(())
     }
 
@@ -62,12 +65,13 @@ impl<'a> serde::Serializer for &'a mut Entry<'static> {
 
     #[inline]
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        self.serialize_none()
+        *self = Entry::Child(Node::empty());
+        Ok(())
     }
 
     #[inline]
     fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
-        self.serialize_none()
+        self.serialize_unit()
     }
 
     #[inline]
@@ -106,18 +110,18 @@ impl<'a> serde::Serializer for &'a mut Entry<'static> {
     where
         T: ?Sized + serde::Serialize,
     {
-        self.ensure_node()
+        self.reset_as_node()
             .serialize_newtype_variant(name, variant_index, variant, value)
     }
 
     #[inline]
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        self.ensure_node().serialize_seq(len)
+        self.reset_as_node().serialize_seq(len)
     }
 
     #[inline]
     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-        self.ensure_node().serialize_tuple(len)
+        self.reset_as_node().serialize_tuple(len)
     }
 
     #[inline]
@@ -126,7 +130,7 @@ impl<'a> serde::Serializer for &'a mut Entry<'static> {
         name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
-        self.ensure_node().serialize_tuple_struct(name, len)
+        self.reset_as_node().serialize_tuple_struct(name, len)
     }
 
     #[inline]
@@ -137,13 +141,13 @@ impl<'a> serde::Serializer for &'a mut Entry<'static> {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        self.ensure_node()
+        self.reset_as_node()
             .serialize_tuple_variant(name, variant_index, variant, len)
     }
 
     #[inline]
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        self.ensure_node().serialize_map(len)
+        self.reset_as_node().serialize_map(len)
     }
 
     #[inline]
@@ -152,7 +156,7 @@ impl<'a> serde::Serializer for &'a mut Entry<'static> {
         name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
-        self.ensure_node().serialize_struct(name, len)
+        self.reset_as_node().serialize_struct(name, len)
     }
 
     #[inline]
@@ -163,9 +167,20 @@ impl<'a> serde::Serializer for &'a mut Entry<'static> {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        self.ensure_node()
+        self.reset_as_node()
             .serialize_struct_variant(name, variant_index, variant, len)
     }
+}
+
+macro_rules! fwd_ser_node {
+    ($function:ident, $value:ty) => {
+        #[inline]
+        #[allow(unused_mut)]
+        fn $function(mut self, v: $value) -> Result<Self::Ok, Self::Error> {
+            *self = Node::from_values(Some(ValueSerializer.$function(v)?));
+            Ok(())
+        }
+    };
 }
 
 /// Serialize as a document node.
@@ -175,35 +190,35 @@ impl<'a> serde::Serializer for &'a mut Entry<'static> {
 ///
 /// When serializing named types (structs and enums), this will only ever set
 /// the `type` of the node - not the name.
-impl<'a> serde::Serializer for &'a mut Node<'static> {
+impl<'a, 'b: 'a> serde::Serializer for &'a mut Node<'b> {
     type Ok = ();
     type Error = Error;
-    type SerializeSeq = SeqSerializer<'a>;
-    type SerializeTuple = SeqSerializer<'a>;
-    type SerializeTupleStruct = SeqSerializer<'a>;
-    type SerializeTupleVariant = SeqSerializer<'a>;
-    type SerializeMap = MapSerializer<'a>;
+    type SerializeSeq = SeqSerializer<'a, 'b>;
+    type SerializeTuple = SeqSerializer<'a, 'b>;
+    type SerializeTupleStruct = SeqSerializer<'a, 'b>;
+    type SerializeTupleVariant = SeqSerializer<'a, 'b>;
+    type SerializeMap = MapSerializer<'a, 'b>;
     type SerializeStruct = Self;
     type SerializeStructVariant = Self;
 
-    fwd_ser!(serialize_bool, bool);
-    fwd_ser!(serialize_i8, i8);
-    fwd_ser!(serialize_i16, i16);
-    fwd_ser!(serialize_i32, i32);
-    fwd_ser!(serialize_i64, i64);
-    fwd_ser!(serialize_u8, u8);
-    fwd_ser!(serialize_u16, u16);
-    fwd_ser!(serialize_u32, u32);
-    fwd_ser!(serialize_u64, u64);
-    fwd_ser!(serialize_f32, f32);
-    fwd_ser!(serialize_f64, f64);
-    fwd_ser!(serialize_char, char);
-    fwd_ser!(serialize_str, &str);
-    fwd_ser!(serialize_bytes, &[u8]);
+    fwd_ser_node!(serialize_bool, bool);
+    fwd_ser_node!(serialize_i8, i8);
+    fwd_ser_node!(serialize_i16, i16);
+    fwd_ser_node!(serialize_i32, i32);
+    fwd_ser_node!(serialize_i64, i64);
+    fwd_ser_node!(serialize_u8, u8);
+    fwd_ser_node!(serialize_u16, u16);
+    fwd_ser_node!(serialize_u32, u32);
+    fwd_ser_node!(serialize_u64, u64);
+    fwd_ser_node!(serialize_f32, f32);
+    fwd_ser_node!(serialize_f64, f64);
+    fwd_ser_node!(serialize_char, char);
+    fwd_ser_node!(serialize_str, &str);
+    fwd_ser_node!(serialize_bytes, &[u8]);
 
     #[inline]
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        *self = Value::Null.into();
+        *self = Node::from_values(Some(Value::Null));
         Ok(())
     }
 
@@ -268,18 +283,12 @@ impl<'a> serde::Serializer for &'a mut Node<'static> {
 
     #[inline]
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        Ok(SeqSerializer {
-            seq: self,
-            mode: SeqMode::Arguments,
-        })
+        Ok(SeqSerializer { seq: self })
     }
 
     #[inline]
     fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-        Ok(SeqSerializer {
-            seq: self,
-            mode: SeqMode::Arguments,
-        })
+        Ok(SeqSerializer { seq: self })
     }
 
     #[inline]
@@ -288,10 +297,7 @@ impl<'a> serde::Serializer for &'a mut Node<'static> {
         _name: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
-        Ok(SeqSerializer {
-            seq: self,
-            mode: SeqMode::Arguments,
-        })
+        Ok(SeqSerializer { seq: self })
     }
 
     #[inline]
@@ -303,10 +309,7 @@ impl<'a> serde::Serializer for &'a mut Node<'static> {
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
         self.set_ty(variant);
-        Ok(SeqSerializer {
-            seq: self,
-            mode: SeqMode::Arguments,
-        })
+        Ok(SeqSerializer { seq: self })
     }
 
     #[inline]
@@ -315,7 +318,6 @@ impl<'a> serde::Serializer for &'a mut Node<'static> {
         Ok(MapSerializer {
             node: self,
             pending_key: None,
-            mode: MapMode::NamedArguments,
         })
     }
 
@@ -345,43 +347,11 @@ impl<'a> serde::Serializer for &'a mut Node<'static> {
     }
 }
 
-pub struct SeqSerializer<'a> {
-    seq: &'a mut Node<'static>,
-    mode: SeqMode,
+pub struct SeqSerializer<'a, 'b> {
+    seq: &'a mut Node<'b>,
 }
 
-impl SeqSerializer<'_> {
-    fn push(&mut self, child: Entry<'static>) {
-        match (self.mode, child) {
-            (SeqMode::Arguments, Entry::Arg(value)) => {
-                self.seq.args_mut().push(value);
-            }
-            (SeqMode::Arguments, Entry::Child(node)) => {
-                // Convert arguments to children.
-                let args = core::mem::take(self.seq.args_mut());
-                self.seq.children_mut().reserve(args.len() + 1);
-                for arg in args {
-                    let child: Node<'static> = arg.value.into();
-                    self.seq.children_mut().push(child);
-                }
-                self.seq.children_mut().push(node);
-                self.mode = SeqMode::Children;
-            }
-            (SeqMode::Children, value) => {
-                let child: Node = value.into();
-                self.seq.children_mut().push(child);
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum SeqMode {
-    Arguments,
-    Children,
-}
-
-impl serde::ser::SerializeSeq for SeqSerializer<'_> {
+impl serde::ser::SerializeSeq for SeqSerializer<'_, '_> {
     type Ok = ();
     type Error = Error;
 
@@ -391,7 +361,7 @@ impl serde::ser::SerializeSeq for SeqSerializer<'_> {
     {
         let mut child = Entry::null();
         value.serialize(&mut child)?;
-        self.push(child);
+        self.seq.push_ordered(child);
         Ok(())
     }
 
@@ -401,7 +371,7 @@ impl serde::ser::SerializeSeq for SeqSerializer<'_> {
     }
 }
 
-impl serde::ser::SerializeTuple for SeqSerializer<'_> {
+impl serde::ser::SerializeTuple for SeqSerializer<'_, '_> {
     type Ok = ();
     type Error = Error;
 
@@ -418,7 +388,7 @@ impl serde::ser::SerializeTuple for SeqSerializer<'_> {
     }
 }
 
-impl serde::ser::SerializeTupleStruct for SeqSerializer<'_> {
+impl serde::ser::SerializeTupleStruct for SeqSerializer<'_, '_> {
     type Ok = ();
     type Error = Error;
 
@@ -435,7 +405,7 @@ impl serde::ser::SerializeTupleStruct for SeqSerializer<'_> {
     }
 }
 
-impl serde::ser::SerializeTupleVariant for SeqSerializer<'_> {
+impl serde::ser::SerializeTupleVariant for SeqSerializer<'_, '_> {
     type Ok = ();
     type Error = Error;
 
@@ -452,71 +422,28 @@ impl serde::ser::SerializeTupleVariant for SeqSerializer<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
-enum MapMode {
-    /// String keys, plain values.
-    NamedArguments,
-    /// String keys, compound values.
-    NamedChildren,
-}
+struct MapKey<'a>(Cow<'a, str>);
 
-struct MapKey(Cow<'static, str>);
-
-impl From<String> for MapKey {
+impl From<String> for MapKey<'_> {
     #[inline]
     fn from(value: String) -> Self {
         MapKey(value.into())
     }
 }
 
-impl From<&'static str> for MapKey {
+impl From<&'static str> for MapKey<'_> {
     #[inline]
     fn from(value: &'static str) -> Self {
         MapKey(value.into())
     }
 }
 
-pub struct MapSerializer<'a> {
-    node: &'a mut Node<'static>,
-    pending_key: Option<MapKey>,
-    mode: MapMode,
+pub struct MapSerializer<'a, 'b> {
+    node: &'a mut Node<'b>,
+    pending_key: Option<MapKey<'b>>,
 }
 
-impl MapSerializer<'_> {
-    fn convert_named_arguments_to_named_children(&mut self) {
-        let args = core::mem::take(self.node.args_mut());
-        self.node.children_mut().reserve(args.len() + 1); // about to insert another
-        for arg in args {
-            let child: Node<'static> = arg.into();
-            self.node.children_mut().push(child);
-        }
-        self.mode = MapMode::NamedChildren;
-    }
-
-    fn push(&mut self, key: MapKey, value: Entry<'static>) {
-        match (self.mode, key, value) {
-            (MapMode::NamedArguments, MapKey(key), Entry::Arg(value)) => {
-                self.node.push_named_arg(key, value.value);
-            }
-            (MapMode::NamedArguments, MapKey(key), Entry::Child(mut value)) => {
-                value.set_name(key);
-                self.convert_named_arguments_to_named_children();
-                self.node.children_mut().push(value);
-            }
-            (MapMode::NamedChildren, MapKey(key), Entry::Arg(value)) => {
-                let mut entry: Node = value.into();
-                entry.set_name(key);
-                self.node.children_mut().push(entry);
-            }
-            (MapMode::NamedChildren, MapKey(key), Entry::Child(mut value)) => {
-                value.set_name(key);
-                self.node.push(value);
-            }
-        }
-    }
-}
-
-impl serde::ser::SerializeMap for MapSerializer<'_> {
+impl serde::ser::SerializeMap for MapSerializer<'_, '_> {
     type Ok = ();
     type Error = Error;
 
@@ -544,8 +471,8 @@ impl serde::ser::SerializeMap for MapSerializer<'_> {
             .pending_key
             .take()
             .expect("unbalanced calls to serialize_key()/serialize_value()");
-
-        self.push(key, value);
+        value.set_name(key.0);
+        self.node.push_ordered(value);
         Ok(())
     }
 
@@ -555,7 +482,7 @@ impl serde::ser::SerializeMap for MapSerializer<'_> {
     }
 }
 
-impl serde::ser::SerializeStruct for &mut Node<'static> {
+impl serde::ser::SerializeStruct for &mut Node<'_> {
     type Ok = ();
     type Error = Error;
 
@@ -565,16 +492,8 @@ impl serde::ser::SerializeStruct for &mut Node<'static> {
     {
         let mut entry = Entry::null();
         value.serialize(&mut entry)?;
-
-        match entry {
-            Entry::Arg(value) => {
-                self.push_named_arg(key, value.value);
-            }
-            Entry::Child(mut value) => {
-                value.set_name(key);
-                self.push(value);
-            }
-        }
+        entry.set_name(key);
+        self.push(entry);
 
         Ok(())
     }
@@ -585,7 +504,7 @@ impl serde::ser::SerializeStruct for &mut Node<'static> {
     }
 }
 
-impl serde::ser::SerializeStructVariant for &mut Node<'static> {
+impl serde::ser::SerializeStructVariant for &mut Node<'_> {
     type Ok = ();
     type Error = Error;
 
@@ -611,16 +530,16 @@ macro_rules! must_be_string_key {
     };
 }
 
-impl<'a> serde::Serializer for &'a mut MapKey {
+impl<'a, 'b: 'a> serde::Serializer for &'a mut MapKey<'b> {
     type Ok = ();
     type Error = Error;
-    type SerializeSeq = SeqSerializer<'a>;
-    type SerializeTuple = SeqSerializer<'a>;
-    type SerializeTupleStruct = SeqSerializer<'a>;
-    type SerializeTupleVariant = SeqSerializer<'a>;
-    type SerializeMap = MapSerializer<'a>;
-    type SerializeStruct = &'a mut Node<'static>;
-    type SerializeStructVariant = &'a mut Node<'static>;
+    type SerializeSeq = SeqSerializer<'a, 'b>;
+    type SerializeTuple = SeqSerializer<'a, 'b>;
+    type SerializeTupleStruct = SeqSerializer<'a, 'b>;
+    type SerializeTupleVariant = SeqSerializer<'a, 'b>;
+    type SerializeMap = MapSerializer<'a, 'b>;
+    type SerializeStruct = &'a mut Node<'b>;
+    type SerializeStructVariant = &'a mut Node<'b>;
 
     must_be_string_key!(serialize_bool, bool);
     must_be_string_key!(serialize_i8, i8);

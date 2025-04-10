@@ -9,6 +9,7 @@ pub(crate) mod access;
 #[cfg(feature = "alloc")]
 pub mod builder;
 pub(crate) mod classify;
+mod compare;
 pub(crate) mod debug;
 mod document;
 mod error;
