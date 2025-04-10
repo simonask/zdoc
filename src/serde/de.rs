@@ -1,31 +1,36 @@
 use serde::{Deserializer as _, de::value::BorrowedStrDeserializer, forward_to_deserialize_any};
 
-use crate::{ClassifyNode, EntriesIter, Entry, Node, ValueRef};
+use crate::{
+    ClassifyNode, ValueRef,
+    access::{self, ArgRef as _},
+};
 
 use super::Error;
 
-impl<'de> serde::Deserializer<'de> for Node<'de> {
+pub struct DeNode<N>(pub N);
+
+impl<'de, N: access::NodeRef<'de>> serde::Deserializer<'de> for DeNode<N> {
     type Error = Error;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        match self.classify() {
-            ClassifyNode::Struct | ClassifyNode::Mixed => visitor.visit_map(MapAccess::new(self)),
-            ClassifyNode::Seq => visitor.visit_seq(SeqAccess::new(self)),
+        match self.0.classify() {
+            ClassifyNode::Struct | ClassifyNode::Mixed => visitor.visit_map(MapAccess::new(self.0)),
+            ClassifyNode::Seq => visitor.visit_seq(SeqAccess::new(self.0)),
             ClassifyNode::Value => {
-                let Some(arg) = self.args().get(0) else {
+                let Some(arg) = self.0.args().next() else {
                     unreachable!()
                 };
-                arg.value.deserialize_any(visitor)
+                arg.value().deserialize_any(visitor)
             }
             ClassifyNode::Unit => visitor.visit_unit(),
             ClassifyNode::StructVariant
             | ClassifyNode::SeqVariant
             | ClassifyNode::ValueVariant
             | ClassifyNode::UnitVariant
-            | ClassifyNode::MixedVariant => visitor.visit_enum(EnumAccess { node: self }),
+            | ClassifyNode::MixedVariant => visitor.visit_enum(EnumAccess { node: self.0 }),
         }
     }
 
@@ -39,14 +44,14 @@ impl<'de> serde::Deserializer<'de> for Node<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_seq(SeqAccess::new(self))
+        visitor.visit_seq(SeqAccess::new(self.0))
     }
 
     fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_seq(SeqAccess::new(self))
+        visitor.visit_seq(SeqAccess::new(self.0))
     }
 
     fn deserialize_tuple_struct<V>(
@@ -58,14 +63,14 @@ impl<'de> serde::Deserializer<'de> for Node<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_seq(SeqAccess::new(self))
+        visitor.visit_seq(SeqAccess::new(self.0))
     }
 
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_map(MapAccess::new(self))
+        visitor.visit_map(MapAccess::new(self.0))
     }
 
     fn deserialize_struct<V>(
@@ -77,7 +82,7 @@ impl<'de> serde::Deserializer<'de> for Node<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_map(MapAccess::new(self))
+        visitor.visit_map(MapAccess::new(self.0))
     }
 
     fn deserialize_enum<V>(
@@ -89,26 +94,33 @@ impl<'de> serde::Deserializer<'de> for Node<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        visitor.visit_enum(EnumAccess { node: self })
+        visitor.visit_enum(EnumAccess { node: self.0 })
     }
 }
 
-struct MapAccess<'de> {
-    entries: EntriesIter<'de>,
-    current: Option<Entry<'de>>,
+struct MapAccess<Args: Iterator, Children: Iterator> {
+    entries: access::EntryRefIter<Args, Children>,
+    current: Option<<access::EntryRefIter<Args, Children> as Iterator>::Item>,
 }
 
-impl<'de> MapAccess<'de> {
+impl<'de, Args: Iterator, Children: Iterator> MapAccess<Args, Children> {
     #[inline]
-    pub fn new(node: Node<'de>) -> Self {
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn new<N: access::NodeRef<'de, ArgsIter<'de> = Args, ChildrenIter<'de> = Children>>(
+        node: N,
+    ) -> Self {
         Self {
-            entries: node.entries().into_iter(),
+            entries: node.entries(),
             current: None,
         }
     }
 }
 
-impl<'de> serde::de::MapAccess<'de> for MapAccess<'de> {
+impl<'de, Args, Children> serde::de::MapAccess<'de> for MapAccess<Args, Children>
+where
+    Args: Iterator<Item: access::ArgRef<'de>>,
+    Children: Iterator<Item: access::NodeRef<'de>>,
+{
     type Error = Error;
 
     fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
@@ -117,7 +129,8 @@ impl<'de> serde::de::MapAccess<'de> for MapAccess<'de> {
     {
         loop {
             if let Some(next) = self.entries.next() {
-                if let Some(name) = next.name() {
+                let name = next.name();
+                if !name.is_empty() {
                     self.current = Some(next);
                     return seed
                         .deserialize(BorrowedStrDeserializer::new(name))
@@ -137,26 +150,33 @@ impl<'de> serde::de::MapAccess<'de> for MapAccess<'de> {
             panic!("unbalanced map access; call next_key() first")
         };
         match entry {
-            Entry::Arg(arg) => seed.deserialize(arg.value),
-            Entry::Child(node) => seed.deserialize(node),
+            access::EntryRef::Arg(arg) => seed.deserialize(arg.value()),
+            access::EntryRef::Child(node) => seed.deserialize(DeNode(node)),
         }
     }
 }
 
-struct SeqAccess<'de> {
-    entries: EntriesIter<'de>,
+struct SeqAccess<Args, Children> {
+    entries: access::EntryRefIter<Args, Children>,
 }
 
-impl<'de> SeqAccess<'de> {
+impl<'de, Args, Children> SeqAccess<Args, Children> {
     #[inline]
-    pub fn new(node: Node<'de>) -> Self {
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn new<N: access::NodeRef<'de, ArgsIter<'de> = Args, ChildrenIter<'de> = Children>>(
+        node: N,
+    ) -> Self {
         Self {
-            entries: node.entries().into_iter(),
+            entries: node.entries(),
         }
     }
 }
 
-impl<'de> serde::de::SeqAccess<'de> for SeqAccess<'de> {
+impl<'de, Args, Children> serde::de::SeqAccess<'de> for SeqAccess<Args, Children>
+where
+    Args: Iterator<Item: access::ArgRef<'de>>,
+    Children: Iterator<Item: access::NodeRef<'de>>,
+{
     type Error = Error;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
@@ -165,8 +185,8 @@ impl<'de> serde::de::SeqAccess<'de> for SeqAccess<'de> {
     {
         if let Some(entry) = self.entries.next() {
             match entry {
-                Entry::Arg(arg) => seed.deserialize(arg.value).map(Some),
-                Entry::Child(node) => seed.deserialize(node).map(Some),
+                access::EntryRef::Arg(arg) => seed.deserialize(arg.value()).map(Some),
+                access::EntryRef::Child(node) => seed.deserialize(DeNode(node)).map(Some),
             }
         } else {
             Ok(None)
@@ -174,29 +194,29 @@ impl<'de> serde::de::SeqAccess<'de> for SeqAccess<'de> {
     }
 }
 
-struct EnumAccess<'de> {
-    node: Node<'de>,
+struct EnumAccess<N> {
+    node: N,
 }
 
-impl<'de> serde::de::EnumAccess<'de> for EnumAccess<'de> {
+impl<'de, N: access::NodeRef<'de>> serde::de::EnumAccess<'de> for EnumAccess<N> {
     type Error = Error;
-    type Variant = VariantAccess<'de>;
+    type Variant = VariantAccess<N>;
 
     fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
     where
         V: serde::de::DeserializeSeed<'de>,
     {
-        let ty = self.node.ty().unwrap_or("");
+        let ty = self.node.ty();
         let variant = seed.deserialize(BorrowedStrDeserializer::new(ty))?;
         Ok((variant, VariantAccess { node: self.node }))
     }
 }
 
-struct VariantAccess<'de> {
-    node: Node<'de>,
+struct VariantAccess<N> {
+    node: N,
 }
 
-impl<'de> serde::de::VariantAccess<'de> for VariantAccess<'de> {
+impl<'de, N: access::NodeRef<'de>> serde::de::VariantAccess<'de> for VariantAccess<N> {
     type Error = Error;
 
     #[inline]
@@ -208,10 +228,10 @@ impl<'de> serde::de::VariantAccess<'de> for VariantAccess<'de> {
     where
         T: serde::de::DeserializeSeed<'de>,
     {
-        if let Some(first) = self.node.entries().into_iter().next() {
+        if let Some(first) = self.node.entries().next() {
             match first {
-                Entry::Arg(arg) => seed.deserialize(arg.value),
-                Entry::Child(node) => seed.deserialize(node),
+                access::EntryRef::Arg(arg) => seed.deserialize(arg.value()),
+                access::EntryRef::Child(node) => seed.deserialize(DeNode(node)),
             }
         } else {
             Err(serde::de::Error::custom(
@@ -224,7 +244,7 @@ impl<'de> serde::de::VariantAccess<'de> for VariantAccess<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        self.node.deserialize_seq(visitor)
+        DeNode(self.node).deserialize_seq(visitor)
     }
 
     fn struct_variant<V>(
@@ -235,7 +255,7 @@ impl<'de> serde::de::VariantAccess<'de> for VariantAccess<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        self.node.deserialize_map(visitor)
+        DeNode(self.node).deserialize_map(visitor)
     }
 }
 

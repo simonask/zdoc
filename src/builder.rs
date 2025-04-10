@@ -6,11 +6,12 @@ use core::mem;
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use hashbrown::{HashMap, hash_map};
 
-use crate::{Document, DocumentBuffer, ValueRef, codec::StringRange, document};
+use crate::{Document, DocumentBuffer, ValueRef, access, codec::StringRange, document};
 
 /// Builder for [`Document`](crate::Document)s.
 ///
-/// Note that the builder can also act as a mutable document.
+/// The builder can be used as a mutable document, i.e. it also supports
+/// reading and deserialization.
 #[derive(Clone, Debug)]
 pub struct Builder<'a> {
     root: Node<'a>,
@@ -61,6 +62,12 @@ impl<'a> Builder<'a> {
     #[inline]
     pub fn set_root(&mut self, node: Node<'a>) {
         self.root = node;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn root(&self) -> &Node<'a> {
+        &self.root
     }
 
     #[inline]
@@ -116,7 +123,7 @@ impl BuildCache {
 ///
 /// This corresponds to the non-owning [`Node`](crate::Node) type, but may be
 /// owned by a [`Builder`].
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default)]
 pub struct Node<'a> {
     pub children: Cow<'a, [Node<'a>]>,
     pub args: Cow<'a, [Arg<'a>]>,
@@ -136,6 +143,10 @@ impl<'a> Node<'a> {
         }
     }
 
+    /// Create a node from a serialized node coming from a
+    /// [`Document`](crate::Document).
+    ///
+    /// Strings and binary data will be borrowed from `node` rather than copied.
     pub fn from_document(node: document::Node<'a>) -> Self {
         let children = node
             .children()
@@ -421,7 +432,14 @@ impl<'a> From<crate::Node<'a>> for Node<'a> {
     }
 }
 
-#[derive(Clone, Default, Debug)]
+impl<'a> core::fmt::Debug for Node<'a> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        crate::debug::debug_entry(&access::EntryRef::<&Arg<'a>, _>::Child(self)).fmt(f)
+    }
+}
+
+#[derive(Clone, Default)]
 pub struct Arg<'a> {
     pub name: Option<Cow<'a, str>>,
     pub value: Value<'a>,
@@ -466,6 +484,13 @@ impl<'a> From<crate::Arg<'a>> for Arg<'a> {
             name: value.name.map(Cow::Borrowed),
             value: value.value.into(),
         }
+    }
+}
+
+impl<'a> core::fmt::Debug for Arg<'a> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        crate::debug::debug_entry(&access::EntryRef::<_, &Node<'a>>::Arg(self)).fmt(f)
     }
 }
 
@@ -519,7 +544,6 @@ impl<'a> Entry<'a> {
         }
     }
 }
-
 impl<'a> From<Arg<'a>> for Entry<'a> {
     #[inline]
     fn from(value: Arg<'a>) -> Self {
@@ -548,6 +572,13 @@ impl<'a> From<Entry<'a>> for Node<'a> {
             Entry::Arg(arg) => arg.into(),
             Entry::Child(node) => node,
         }
+    }
+}
+
+impl core::fmt::Debug for Entry<'_> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        crate::debug::debug_entry(&self.into()).fmt(f)
     }
 }
 
@@ -830,6 +861,62 @@ impl Strings {
                 self.buffer.push_str(s);
                 *entry.insert(StringRange { start, len })
             }
+        }
+    }
+}
+
+impl<'a, 'c: 'a> access::NodeRef<'a> for &'a Node<'c> {
+    type ChildrenIter<'b>
+        = core::slice::Iter<'b, Node<'c>>
+    where
+        Self: 'b,
+        'c: 'b;
+
+    type ArgsIter<'b>
+        = core::slice::Iter<'b, Arg<'c>>
+    where
+        Self: 'b,
+        'c: 'b;
+
+    #[inline]
+    fn name(&self) -> &'a str {
+        &self.name
+    }
+
+    #[inline]
+    fn ty(&self) -> &'a str {
+        &self.ty
+    }
+
+    #[inline]
+    fn children(&self) -> Self::ChildrenIter<'a> {
+        self.children.iter()
+    }
+
+    #[inline]
+    fn args(&self) -> Self::ArgsIter<'a> {
+        self.args.iter()
+    }
+}
+
+impl<'a> access::ArgRef<'a> for &'a Arg<'_> {
+    #[inline]
+    fn name(&self) -> &'a str {
+        self.name.as_deref().unwrap_or_default()
+    }
+
+    #[inline]
+    fn value(&self) -> ValueRef<'a> {
+        (&self.value).into()
+    }
+}
+
+impl<'a, 'b> From<&'a Entry<'b>> for access::EntryRef<&'a Arg<'b>, &'a Node<'b>> {
+    #[inline]
+    fn from(value: &'a Entry<'b>) -> Self {
+        match value {
+            Entry::Arg(arg) => access::EntryRef::Arg(arg),
+            Entry::Child(node) => access::EntryRef::Child(node),
         }
     }
 }

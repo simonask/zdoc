@@ -5,8 +5,11 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+pub(crate) mod access;
 #[cfg(feature = "alloc")]
 pub mod builder;
+pub(crate) mod classify;
+pub(crate) mod debug;
 mod document;
 mod error;
 #[cfg(feature = "json")]
@@ -16,7 +19,7 @@ pub mod kdl;
 #[cfg(feature = "rkyv")]
 pub mod rkyv;
 #[cfg(feature = "serde")]
-mod serde_support;
+pub mod serde;
 #[cfg(feature = "xml")]
 pub mod xml;
 #[cfg(feature = "yaml")]
@@ -24,11 +27,9 @@ pub mod yaml;
 
 #[cfg(feature = "alloc")]
 pub use builder::Builder;
+pub use classify::ClassifyNode;
 pub use document::*;
 pub use error::*;
-
-#[cfg(feature = "serde")]
-pub use serde_support::{from_document, to_document, to_document_builder};
 
 mod internal {
     pub enum IndexOrString<'a> {

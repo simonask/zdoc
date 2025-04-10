@@ -69,9 +69,7 @@ pub use error::*;
 /// # Errors
 ///
 /// If the value cannot be serialized, this returns an error.
-pub fn to_document_builder<T: serde::Serialize>(
-    value: &T,
-) -> Result<crate::Builder<'static>, Error> {
+pub fn to_builder<T: serde::Serialize>(value: &T) -> Result<crate::Builder<'static>, Error> {
     let mut builder = crate::Builder::new();
     value.serialize(builder.root_mut())?;
     Ok(builder)
@@ -84,7 +82,22 @@ pub fn to_document_builder<T: serde::Serialize>(
 ///
 /// If the value cannot be serialized, this returns an error.
 pub fn to_document<T: serde::Serialize>(value: &T) -> Result<crate::DocumentBuffer, Error> {
-    to_document_builder(value).map(|builder| builder.build())
+    to_builder(value).map(|builder| builder.build())
+}
+
+/// Deserialize a [`Builder`](crate::Builder) into a value of type `T`,
+/// borrowing strings and binary data from the document.
+///
+/// See [`to_builder`] for the conventions and assumptions of the structure of
+/// serialized data.
+///
+/// # Errors
+///
+/// If the document cannot be deserialized into `T`, this returns an error.
+pub fn from_builder<'a, T: serde::Deserialize<'a>>(
+    builder: &'a crate::Builder,
+) -> Result<T, Error> {
+    serde::de::Deserialize::deserialize(de::DeNode(builder.root()))
 }
 
 /// Deserialize a [`Document`](crate::Document) into a value of type `T`,
@@ -99,7 +112,24 @@ pub fn to_document<T: serde::Serialize>(value: &T) -> Result<crate::DocumentBuff
 pub fn from_document<'a, T: serde::Deserialize<'a>>(
     document: &'a crate::Document,
 ) -> Result<T, Error> {
-    serde::de::Deserialize::deserialize(document.root())
+    serde::de::Deserialize::deserialize(de::DeNode(document.root()))
+}
+
+impl<'de> serde::de::IntoDeserializer<'de, Error> for crate::Node<'de> {
+    type Deserializer = de::DeNode<Self>;
+
+    #[inline]
+    fn into_deserializer(self) -> Self::Deserializer {
+        de::DeNode(self)
+    }
+}
+
+impl<'de> serde::de::IntoDeserializer<'de, Error> for &'de crate::builder::Node<'de> {
+    type Deserializer = de::DeNode<Self>;
+
+    fn into_deserializer(self) -> Self::Deserializer {
+        de::DeNode(self)
+    }
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ use serde::{Serialize as _, ser::Impossible};
 
 use crate::{
     builder::{Entry, Node, Value},
-    serde_support::Error,
+    serde::Error,
 };
 
 macro_rules! fwd_ser {

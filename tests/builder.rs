@@ -103,3 +103,28 @@ fn dictionary() {
     assert_eq!(list.args().get(0).unwrap().value, ValueRef::Int(789));
     assert_eq!(list.args().get(1).unwrap().value, ValueRef::Int(0));
 }
+
+#[test]
+fn debug_display() {
+    let mut builder = Builder::new();
+    builder.with_root(|root| {
+        root.set_ty("Root");
+        root.set_name("root");
+        root.push_named("key1", 123);
+        root.push_named_with("dict", |dict| {
+            dict.push_named("key", 456);
+        });
+        root.push_named_with("list", |list| {
+            list.push(789);
+            list.push(0);
+        });
+    });
+    let expected = format!("{:?}", builder.root());
+    let doc = builder.build();
+    let string = format!("{:?}", doc.root());
+    assert_eq!(expected, string);
+    assert_eq!(
+        expected,
+        r#"root = Root {"key1": 123, "dict": {"key": 456}, "list": [789, 0]}"#
+    );
+}

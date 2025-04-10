@@ -58,6 +58,8 @@ pub struct Header {
     pub reserved3: u32,
 }
 
+// Static checks to ensure that the `#[repr(C)]` representation of the struct
+// for this platform matches expectations.
 const _: () = {
     assert!(
         size_of::<Header>() == 64,
@@ -113,6 +115,8 @@ pub struct Node {
     pub ty: StringRange,
 }
 
+// Static checks to ensure that the `#[repr(C)]` representation of the struct
+// for this platform matches expectations.
 const _: () = {
     assert!(
         size_of::<Node>() == 32,
@@ -140,6 +144,8 @@ pub struct Arg {
     pub value: Value,
 }
 
+// Static checks to ensure that the `#[repr(C)]` representation of the struct
+// for this platform matches expectations.
 const _: () = {
     assert!(
         size_of::<Arg>() == 20,
@@ -170,6 +176,8 @@ impl Value {
     };
 }
 
+// Static checks to ensure that the `#[repr(C)]` representation of the struct
+// for this platform matches expectations.
 const _: () = {
     assert!(
         size_of::<Value>() == 12,
