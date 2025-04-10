@@ -127,6 +127,7 @@ impl<'de> serde::de::IntoDeserializer<'de, Error> for crate::Node<'de> {
 impl<'de> serde::de::IntoDeserializer<'de, Error> for &'de crate::builder::Node<'de> {
     type Deserializer = de::DeNode<Self>;
 
+    #[inline]
     fn into_deserializer(self) -> Self::Deserializer {
         de::DeNode(self)
     }
