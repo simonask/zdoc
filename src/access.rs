@@ -6,6 +6,7 @@ use core::iter::FusedIterator;
 
 use crate::{ClassifyNode, ValueRef};
 
+#[allow(unused)]
 pub trait NodeRef<'a>: Sized + 'a {
     type ChildrenIter<'b>: ExactSizeIterator<Item: NodeRef<'b>> + Clone + 'b
     where

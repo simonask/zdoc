@@ -1,7 +1,7 @@
-use crate::{
-    access::{self, ArgRef as _},
-    builder,
-};
+use crate::access::{self, ArgRef as _};
+
+#[cfg(feature = "alloc")]
+use crate::builder;
 
 fn node_partial_eq<'a, 'b, A: access::NodeRef<'a>, B: access::NodeRef<'b>>(
     lhs: &A,
@@ -66,6 +66,7 @@ impl<'a> PartialEq<crate::Node<'a>> for &crate::Node<'_> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'a> PartialEq<builder::Node<'a>> for builder::Node<'_> {
     #[inline]
     fn eq(&self, other: &builder::Node<'a>) -> bool {
@@ -73,6 +74,7 @@ impl<'a> PartialEq<builder::Node<'a>> for builder::Node<'_> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'a> PartialEq<&builder::Node<'a>> for builder::Node<'_> {
     #[inline]
     fn eq(&self, other: &&builder::Node<'a>) -> bool {
@@ -80,6 +82,7 @@ impl<'a> PartialEq<&builder::Node<'a>> for builder::Node<'_> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'a> PartialEq<builder::Node<'a>> for &builder::Node<'_> {
     #[inline]
     fn eq(&self, other: &builder::Node<'a>) -> bool {
@@ -87,6 +90,7 @@ impl<'a> PartialEq<builder::Node<'a>> for &builder::Node<'_> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'a> PartialEq<crate::Node<'a>> for builder::Node<'_> {
     #[inline]
     fn eq(&self, other: &crate::Node<'a>) -> bool {
@@ -94,6 +98,7 @@ impl<'a> PartialEq<crate::Node<'a>> for builder::Node<'_> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'a> PartialEq<crate::Node<'a>> for &builder::Node<'_> {
     #[inline]
     fn eq(&self, other: &crate::Node<'a>) -> bool {
@@ -101,6 +106,7 @@ impl<'a> PartialEq<crate::Node<'a>> for &builder::Node<'_> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'a> PartialEq<builder::Node<'a>> for crate::Node<'_> {
     #[inline]
     fn eq(&self, other: &builder::Node<'a>) -> bool {
@@ -108,6 +114,7 @@ impl<'a> PartialEq<builder::Node<'a>> for crate::Node<'_> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'a> PartialEq<&builder::Node<'a>> for crate::Node<'_> {
     #[inline]
     fn eq(&self, other: &&builder::Node<'a>) -> bool {
@@ -115,6 +122,7 @@ impl<'a> PartialEq<&builder::Node<'a>> for crate::Node<'_> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'a> PartialEq<builder::Node<'a>> for &crate::Node<'_> {
     #[inline]
     fn eq(&self, other: &builder::Node<'a>) -> bool {
