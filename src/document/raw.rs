@@ -1,11 +1,12 @@
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
-use bytemuck::{cast_slice, from_bytes, pod_align_to};
+use bytemuck::{cast_slice, pod_align_to};
 use core::mem::offset_of;
 
-use crate::{CorruptError, CorruptErrorKind, Error};
+use crate::{ValidationError, ValidationErrorKind};
 
 use super::codec;
+use codec::Header;
 
 #[cfg(feature = "alloc")]
 #[derive(Clone, Default)]
@@ -33,7 +34,7 @@ impl RawDocumentBuffer {
     pub fn from_buffer(mut buffer: Vec<u8>) -> RawDocumentBuffer {
         #[inline]
         fn unaligned_prefix(bytes: &[u8]) -> usize {
-            let (unaligned_prefix, _, _) = pod_align_to::<u8, codec::Header>(bytes);
+            let (unaligned_prefix, _, _) = pod_align_to::<u8, Header>(bytes);
             unaligned_prefix.len()
         }
 
@@ -43,7 +44,7 @@ impl RawDocumentBuffer {
             // and then recompute the alignment adjustment. We need to do this
             // in two steps to avoid the call to `resize()` invalidating the
             // unaligned prefix that we already computed.
-            buffer.reserve(align_of::<codec::Header>());
+            buffer.reserve(align_of::<Header>());
 
             // Check if call to `reserve()` coincidentally produced the correct
             // alignment.
@@ -103,19 +104,39 @@ impl core::ops::Deref for RawDocumentBuffer {
 ///
 /// All methods on this are unsafe to call, because it does not perform any
 /// validation on the document, exception in the `check_*` methods.
-#[derive(bytemuck::TransparentWrapper)]
+// Note: Implementing `PartialEq` and `Eq` in terms of bytewise equality will
+// *mostly* work, because of the invariants in the layout of documents, which
+// results in one basically canonical representation. However, it is possible to
+// manually construct documents that are logically equal, but not bytewise
+// equal, because nodes and arguments are not guaranteed to be ordered
+// identically in the binary format.
+#[derive(PartialEq, Eq, bytemuck::TransparentWrapper)]
 #[repr(transparent)]
 pub struct RawDocument {
-    // Note: Must be 4-byte aligned.
+    /// SAFETY INVARIANT: Must be 4-byte aligned and at least
+    /// `size_of::<Header>()` bytes long.
     bytes: [u8],
 }
 
 impl RawDocument {
+    #[inline]
+    #[must_use]
+    pub const fn empty() -> &'static RawDocument {
+        unsafe {
+            // SAFETY: Header is Pod.
+            &*(core::ptr::from_ref(core::slice::from_raw_parts(
+                (&raw const codec::DEFAULT_HEADER).cast::<u8>(),
+                size_of::<Header>(),
+            )) as *const Self)
+        }
+    }
+
     /// Create a new `RawDocument` from a byte slice.
     ///
     /// # Panics
     ///
     /// - The byte slice must be 4-byte aligned.
+    /// - The length of the byte slice must be either zero or at least 64 bytes.
     ///
     /// # Safety
     ///
@@ -124,7 +145,11 @@ impl RawDocument {
     #[inline]
     #[must_use]
     pub fn from_slice(bytes: &[u8]) -> &Self {
-        let (unaligned_prefix, _, _) = pod_align_to::<_, codec::Header>(bytes);
+        if bytes.is_empty() {
+            return Self::empty();
+        }
+
+        let (unaligned_prefix, _, _) = pod_align_to::<_, Header>(bytes);
         assert!(
             unaligned_prefix.is_empty(),
             "document must be 4-byte aligned, prefix is {} bytes",
@@ -139,15 +164,23 @@ impl RawDocument {
     ///
     /// # Safety
     ///
-    /// This function is safe to call if the slice is 4-byte aligned.
+    /// This function is safe to call if:
+    ///
+    /// - The slice is 4-byte aligned.
+    /// - The slice is either empty or at least 64 bytes long.
     #[inline]
     #[must_use]
     pub unsafe fn from_slice_unchecked(aligned_bytes: &[u8]) -> &Self {
-        let (unaligned_prefix, _, _) = pod_align_to::<_, codec::Header>(aligned_bytes);
+        if aligned_bytes.is_empty() {
+            return Self::empty();
+        }
+
+        let (unaligned_prefix, _, _) = pod_align_to::<_, Header>(aligned_bytes);
         debug_assert!(
             unaligned_prefix.is_empty(),
             "document must be 4-byte aligned"
         );
+        debug_assert!(aligned_bytes.len() >= size_of::<Header>());
         unsafe { &*(core::ptr::from_ref(aligned_bytes) as *const Self) }
     }
 
@@ -162,15 +195,12 @@ impl RawDocument {
     ///   smaller than 64 bytes.
     #[inline]
     #[must_use]
-    pub fn header(&self) -> &codec::Header {
-        if self.bytes.is_empty() {
-            &codec::Header::DEFAULT
-        } else {
-            let bytes = self
-                .bytes
-                .get(..size_of::<codec::Header>())
-                .expect("header() called with an invalid header; call check_header() first");
-            from_bytes(bytes)
+    #[expect(clippy::cast_ptr_alignment, clippy::ptr_as_ptr)]
+    pub fn header(&self) -> &Header {
+        unsafe {
+            // SAFETY: The invariant of `self.bytes` is that it is well-aligned
+            // and at least `size_of::<Header>()` bytes long.
+            &*(self.bytes.as_ptr() as *const Header)
         }
     }
 
@@ -208,7 +238,7 @@ impl RawDocument {
     }
 
     #[inline]
-    unsafe fn nodes_unchecked_with_header(&self, header: &codec::Header) -> &[codec::Node] {
+    unsafe fn nodes_unchecked_with_header(&self, header: &Header) -> &[codec::Node] {
         let bytes_start = header.nodes_offset as usize;
         let len = header.nodes_len as usize;
         let bytes_end = bytes_start + len * size_of::<codec::Node>();
@@ -224,6 +254,13 @@ impl RawDocument {
     #[must_use]
     pub fn args(&self) -> &[codec::Arg] {
         let header = self.header();
+
+        // // This check is necessary because the empty document is not guaranteed
+        // // to be well-aligned.
+        // if header.args_len == 0 {
+        //     return &[];
+        // }
+
         let start = header.args_offset as usize;
         let end = start + size_of::<codec::Arg>() * header.args_len as usize;
         cast_slice(&self.bytes[start..end])
@@ -245,9 +282,16 @@ impl RawDocument {
     }
 
     #[inline]
-    unsafe fn args_unchecked_with_header(&self, header: &codec::Header) -> &[codec::Arg] {
+    unsafe fn args_unchecked_with_header(&self, header: &Header) -> &[codec::Arg] {
         let bytes_start = header.args_offset as usize;
         let len = header.args_len as usize;
+
+        // // This check is necessary because the empty document is not guaranteed
+        // // to be well-aligned.
+        // if len == 0 {
+        //     return &[];
+        // }
+
         let bytes_end = bytes_start + len * size_of::<codec::Arg>();
         unsafe {
             // SAFETY: Invariants of this function.
@@ -303,7 +347,7 @@ impl RawDocument {
     #[must_use]
     unsafe fn get_node_unchecked_with_header<'a>(
         &'a self,
-        header: &'a codec::Header,
+        header: &'a Header,
         index: u32,
     ) -> RawNodeRef<'a> {
         unsafe {
@@ -390,11 +434,12 @@ impl RawDocument {
     ///
     /// If the bytes are not a valid document, this returns an error.
     #[inline]
-    pub fn check(&self) -> Result<(), Error> {
+    pub fn check(&self) -> Result<(), ValidationError> {
         self.check_header()?;
         self.check_nodes()?;
         self.check_args()?;
-        self.check_strings()
+        self.check_strings()?;
+        Ok(())
     }
 
     /// Check the header of the document.
@@ -405,71 +450,201 @@ impl RawDocument {
     /// # Errors
     ///
     /// If the document header is not valid, this returns an error.
-    #[inline]
-    pub fn check_header(&self) -> Result<&codec::Header, Error> {
-        if !self.bytes.is_empty() && self.bytes.len() < size_of::<codec::Header>() {
-            return Err(Error::InvalidSize);
+    #[expect(clippy::too_many_lines)]
+    pub fn check_header(&self) -> Result<(), ValidationError> {
+        #[inline]
+        const fn is_overlapping(a: core::ops::Range<usize>, b: core::ops::Range<usize>) -> bool {
+            (a.start < b.end) & (b.start < a.end)
         }
 
-        let header = self.header();
-        if header.magic != codec::MAGIC {
-            return Err(Error::InvalidMagic);
-        }
-        if header.version != codec::VERSION {
-            return Err(Error::InvalidVersion(header.version));
-        }
-        if header.size as usize != self.bytes.len() {
-            return Err(Error::InvalidSize);
-        }
-
-        if header.nodes_offset % 4 != 0 {
-            return Err(Error::InvalidHeader);
-        }
-        if header.nodes_offset as usize > self.bytes.len() {
-            return Err(Error::InvalidHeader);
-        }
-        if header.nodes_offset as usize + header.nodes_len as usize * size_of::<codec::Node>()
-            > self.bytes.len()
+        // Check the safety invariants.
+        debug_assert!(self.bytes.len() >= size_of::<Header>());
+        #[cfg(debug_assertions)]
         {
-            return Err(Error::InvalidHeader);
+            let (unaligned, _, _) = pod_align_to::<_, Header>(&self.bytes);
+            debug_assert!(unaligned.is_empty(), "document is unaligned");
         }
 
-        if header.args_offset % 4 != 0 {
-            return Err(Error::InvalidHeader);
+        let Header {
+            magic,
+            version,
+            root_node_index,
+            size,
+            nodes_offset,
+            nodes_len,
+            args_offset,
+            args_len,
+            strings_offset,
+            strings_len,
+            binary_offset,
+            binary_len,
+            reserved1,
+            reserved2,
+            reserved3,
+        } = *self.header();
+
+        if magic != codec::MAGIC {
+            return Err(ValidationErrorKind::HeaderMagic.at_offset(0usize));
         }
-        if header.args_offset as usize > self.bytes.len() {
-            return Err(Error::InvalidHeader);
+        if version != codec::VERSION {
+            return Err(
+                ValidationErrorKind::HeaderVersion(version).at_offset(offset_of!(Header, version))
+            );
         }
-        if header.args_offset as usize + header.args_len as usize * size_of::<codec::Arg>()
-            > self.bytes.len()
-        {
-            return Err(Error::InvalidHeader);
+        if size as usize != self.bytes.len() {
+            return Err(ValidationErrorKind::HeaderSize.at_offset(offset_of!(Header, size)));
         }
 
-        if header.strings_offset as usize > self.bytes.len() {
-            return Err(Error::InvalidHeader);
+        if nodes_offset % 4 != 0 {
+            return Err(
+                ValidationErrorKind::HeaderNodesOffset.at_offset(offset_of!(Header, nodes_offset))
+            );
         }
-        if header.strings_offset as usize + header.strings_len as usize > self.bytes.len() {
-            return Err(Error::InvalidHeader);
+        if nodes_offset != 0 && nodes_offset < size_of::<Header>() as u32 {
+            return Err(
+                ValidationErrorKind::HeaderNodesOffset.at_offset(offset_of!(Header, nodes_offset))
+            );
         }
-        if header.binary_offset as usize > self.bytes.len() {
-            return Err(Error::InvalidHeader);
-        }
-        if header.binary_offset as usize + header.binary_len as usize > self.bytes.len() {
-            return Err(Error::InvalidHeader);
-        }
-
-        if header.root_node_index != 0 && header.root_node_index as usize > self.bytes.len() {
-            return Err(Error::InvalidHeader);
-        }
-
-        // TODO: Check overlap.
-
-        if header.reserved1 | header.reserved2 | header.reserved3 != 0 {
-            return Err(Error::InvalidHeader);
+        if nodes_offset as usize > self.bytes.len() {
+            return Err(
+                ValidationErrorKind::HeaderNodesOffset.at_offset(offset_of!(Header, nodes_offset))
+            );
         }
 
-        Ok(header)
+        let Some(nodes_end) = (nodes_len as usize)
+            .checked_mul(size_of::<codec::Node>())
+            .and_then(|len| len.checked_add(nodes_offset as usize))
+            .filter(|end| *end <= self.bytes.len())
+        else {
+            return Err(
+                ValidationErrorKind::HeaderNodesLen.at_offset(offset_of!(Header, nodes_len))
+            );
+        };
+
+        if args_offset % 4 != 0 {
+            return Err(
+                ValidationErrorKind::HeaderArgsOffset.at_offset(offset_of!(Header, args_offset))
+            );
+        }
+        if args_offset != 0 && args_offset < size_of::<Header>() as u32 {
+            return Err(
+                ValidationErrorKind::HeaderArgsOffset.at_offset(offset_of!(Header, args_offset))
+            );
+        }
+        if args_offset as usize > self.bytes.len() {
+            return Err(
+                ValidationErrorKind::HeaderArgsOffset.at_offset(offset_of!(Header, args_offset))
+            );
+        }
+        let Some(args_end) = (args_len as usize)
+            .checked_mul(size_of::<codec::Arg>())
+            .and_then(|len| len.checked_add(args_offset as usize))
+            .filter(|end| *end <= self.bytes.len())
+        else {
+            return Err(ValidationErrorKind::HeaderArgsLen.at_offset(offset_of!(Header, args_len)));
+        };
+
+        if strings_offset as usize > self.bytes.len() {
+            return Err(ValidationErrorKind::HeaderStringsOffset
+                .at_offset(offset_of!(Header, strings_offset)));
+        }
+        if strings_offset != 0 && strings_offset < size_of::<Header>() as u32 {
+            return Err(ValidationErrorKind::HeaderStringsOffset
+                .at_offset(offset_of!(Header, strings_offset)));
+        }
+        let Some(strings_end) = (strings_offset as usize)
+            .checked_add(strings_len as usize)
+            .filter(|end| *end <= self.bytes.len())
+        else {
+            return Err(
+                ValidationErrorKind::HeaderStringsLen.at_offset(offset_of!(Header, strings_len))
+            );
+        };
+
+        if binary_offset as usize > self.bytes.len() {
+            return Err(ValidationErrorKind::HeaderBinaryOffset
+                .at_offset(offset_of!(Header, binary_offset)));
+        }
+        if binary_offset != 0 && binary_offset < size_of::<Header>() as u32 {
+            return Err(ValidationErrorKind::HeaderBinaryOffset
+                .at_offset(offset_of!(Header, binary_offset)));
+        }
+        let Some(binary_end) = (binary_offset as usize)
+            .checked_add(binary_len as usize)
+            .filter(|end| *end <= self.bytes.len())
+        else {
+            return Err(
+                ValidationErrorKind::HeaderBinaryLen.at_offset(offset_of!(Header, binary_len))
+            );
+        };
+
+        if root_node_index != 0 && root_node_index >= nodes_len {
+            return Err(ValidationErrorKind::HeaderRootNodeOutOfBounds
+                .at_offset(offset_of!(Header, root_node_index)));
+        }
+
+        if is_overlapping(
+            nodes_offset as usize..nodes_end,
+            args_offset as usize..args_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, args_offset)));
+        }
+
+        if is_overlapping(
+            nodes_offset as usize..nodes_end,
+            strings_offset as usize..strings_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, strings_offset)));
+        }
+
+        if is_overlapping(
+            nodes_offset as usize..nodes_end,
+            binary_offset as usize..binary_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, binary_offset)));
+        }
+
+        if is_overlapping(
+            args_offset as usize..args_end,
+            strings_offset as usize..strings_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, strings_offset)));
+        }
+
+        if is_overlapping(
+            args_offset as usize..args_end,
+            binary_offset as usize..binary_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, binary_offset)));
+        }
+
+        if is_overlapping(
+            strings_offset as usize..strings_end,
+            binary_offset as usize..binary_end,
+        ) {
+            return Err(ValidationErrorKind::HeaderSectionsOverlap
+                .at_offset(offset_of!(Header, binary_offset)));
+        }
+
+        if reserved1 != 0 {
+            return Err(ValidationErrorKind::HeaderReservedFieldsMustBeZero
+                .at_offset(offset_of!(Header, reserved1)));
+        }
+        if reserved2 != 0 {
+            return Err(ValidationErrorKind::HeaderReservedFieldsMustBeZero
+                .at_offset(offset_of!(Header, reserved2)));
+        }
+        if reserved3 != 0 {
+            return Err(ValidationErrorKind::HeaderReservedFieldsMustBeZero
+                .at_offset(offset_of!(Header, reserved3)));
+        }
+
+        Ok(())
     }
 
     /// Check the strings in the document.
@@ -480,13 +655,13 @@ impl RawDocument {
     ///
     /// If the strings are not valid UTF-8, this returns an error.
     #[inline]
-    pub fn check_strings(&self) -> Result<(), Error> {
+    pub fn check_strings(&self) -> Result<(), ValidationError> {
         let header = self.header();
         let start = header.strings_offset as usize;
         let end = start + header.strings_len as usize;
         core::str::from_utf8(&self.bytes[start..end])
             .map(|_| ())
-            .map_err(|_| Error::InvalidUtf8)
+            .map_err(|_| ValidationErrorKind::InvalidUtf8.at_offset(header.strings_offset))
     }
 
     /// Check the nodes in the document.
@@ -499,7 +674,7 @@ impl RawDocument {
     ///
     /// If the nodes are not valid, this returns an error.
     #[inline]
-    pub fn check_nodes(&self) -> Result<(), Error> {
+    pub fn check_nodes(&self) -> Result<(), ValidationError> {
         let header = self.header();
         if header.nodes_len == 0 {
             return Ok(());
@@ -512,11 +687,7 @@ impl RawDocument {
     }
 
     #[inline]
-    fn check_node(
-        header: &codec::Header,
-        index: u32,
-        node: &codec::Node,
-    ) -> Result<(), CorruptError> {
+    fn check_node(header: &Header, index: u32, node: &codec::Node) -> Result<(), ValidationError> {
         let offset = header.nodes_offset + index * size_of::<codec::Node>() as u32;
         let name_offset = offset + offset_of!(codec::Node, name) as u32;
         let ty_offset = offset + offset_of!(codec::Node, ty) as u32;
@@ -534,7 +705,7 @@ impl RawDocument {
         // This ensures that there are no circular references, and also helps
         // with cache locality on depth-first traversals.
         if node.children.len != 0 && node.children.start <= index {
-            return Err(CorruptErrorKind::ChildrenBeforeParent.with_offset(children_offset));
+            return Err(ValidationErrorKind::ChildrenBeforeParent.at_offset(children_offset));
         }
 
         // Invariant: Children of the node must be valid.
@@ -543,36 +714,36 @@ impl RawDocument {
 
     #[inline]
     fn check_arg_range(
-        header: &codec::Header,
+        header: &Header,
         offset: u32,
         range: codec::ArgRange,
-    ) -> Result<(), CorruptError> {
+    ) -> Result<(), ValidationError> {
         let end = header.args_len;
         let range_end = range
             .start
             .checked_add(range.len)
-            .ok_or(CorruptErrorKind::LengthOverflow.with_offset(offset))?;
+            .ok_or(ValidationErrorKind::LengthOverflow.at_offset(offset))?;
         if range.start <= end && range_end <= end {
             return Ok(());
         }
-        Err(CorruptErrorKind::ArgumentsOutOfBounds.with_offset(offset))
+        Err(ValidationErrorKind::ArgumentsOutOfBounds.at_offset(offset))
     }
 
     #[inline]
     fn check_node_range(
-        header: &codec::Header,
+        header: &Header,
         offset: u32,
         range: codec::NodeRange,
-    ) -> Result<(), CorruptError> {
+    ) -> Result<(), ValidationError> {
         let end = header.nodes_len;
         let range_end = range
             .start
             .checked_add(range.len)
-            .ok_or(CorruptErrorKind::LengthOverflow.with_offset(offset))?;
+            .ok_or(ValidationErrorKind::LengthOverflow.at_offset(offset))?;
         if range.start <= end && range_end <= end {
             return Ok(());
         }
-        Err(CorruptErrorKind::ChildrenOutOfBounds.with_offset(offset))
+        Err(ValidationErrorKind::ChildrenOutOfBounds.at_offset(offset))
     }
 
     /// Check the integrity of all values in the document.
@@ -584,7 +755,7 @@ impl RawDocument {
     ///
     /// If the values are not valid, this returns an error.
     #[inline]
-    pub fn check_args(&self) -> Result<(), Error> {
+    pub fn check_args(&self) -> Result<(), ValidationError> {
         let args = self.args();
         let header = self.header();
         for (index, arg) in args.iter().enumerate() {
@@ -594,7 +765,7 @@ impl RawDocument {
     }
 
     #[inline]
-    fn check_arg(header: &codec::Header, index: u32, arg: &codec::Arg) -> Result<(), CorruptError> {
+    fn check_arg(header: &Header, index: u32, arg: &codec::Arg) -> Result<(), ValidationError> {
         let offset = header.args_offset + index * size_of::<codec::Arg>() as u32;
         let name_offset = offset + offset_of!(codec::Arg, name) as u32;
         let value_offset = offset + offset_of!(codec::Arg, value) as u32;
@@ -606,14 +777,14 @@ impl RawDocument {
 
     #[inline]
     fn check_value(
-        header: &codec::Header,
+        header: &Header,
         offset: u32,
         value: codec::Value,
-    ) -> Result<(), CorruptError> {
+    ) -> Result<(), ValidationError> {
         let ty_offset = offset + offset_of!(codec::Value, ty) as u32;
         let payload_offset = offset + offset_of!(codec::Value, payload) as u32;
         match value.try_into() {
-            Err(err) => Err(err.with_offset(ty_offset)),
+            Err(err) => Err(err.at_offset(ty_offset)),
             Ok(codec::RawValue::String(range)) => Self::check_string(header, payload_offset, range),
             Ok(codec::RawValue::Binary(range)) => Self::check_binary(header, payload_offset, range),
             _ => Ok(()),
@@ -622,38 +793,38 @@ impl RawDocument {
 
     #[inline]
     fn check_string(
-        header: &codec::Header,
+        header: &Header,
         offset: u32,
         range: codec::StringRange,
-    ) -> Result<(), CorruptError> {
+    ) -> Result<(), ValidationError> {
         let len = header.strings_len;
         let range_end = range
             .start
             .checked_add(range.len)
-            .ok_or(CorruptErrorKind::LengthOverflow.with_offset(offset))?;
+            .ok_or(ValidationErrorKind::LengthOverflow.at_offset(offset))?;
 
         if range.start <= len && range_end <= len {
             return Ok(());
         }
-        Err(CorruptErrorKind::StringOutOfBounds.with_offset(offset))
+        Err(ValidationErrorKind::StringOutOfBounds.at_offset(offset))
     }
 
     #[inline]
     fn check_binary(
-        header: &codec::Header,
+        header: &Header,
         offset: u32,
         range: codec::BinaryRange,
-    ) -> Result<(), CorruptError> {
+    ) -> Result<(), ValidationError> {
         let len = header.binary_len;
         let range_end = range
             .start
             .checked_add(range.len)
-            .ok_or(CorruptErrorKind::LengthOverflow.with_offset(offset))?;
+            .ok_or(ValidationErrorKind::LengthOverflow.at_offset(offset))?;
 
         if range.start <= len && range_end <= len {
             return Ok(());
         }
-        Err(CorruptErrorKind::BinaryOutOfBounds.with_offset(offset))
+        Err(ValidationErrorKind::BinaryOutOfBounds.at_offset(offset))
     }
 
     #[inline]
@@ -666,7 +837,7 @@ impl RawDocument {
 #[derive(Clone, Copy)]
 pub struct RawNodeRef<'a> {
     doc: &'a RawDocument,
-    header: &'a codec::Header,
+    header: &'a Header,
     node: &'a codec::Node,
 }
 
@@ -759,7 +930,7 @@ impl<'a> RawNodeRef<'a> {
 #[derive(Clone, Copy)]
 pub struct RawNodeChildren<'a> {
     doc: &'a RawDocument,
-    header: &'a codec::Header,
+    header: &'a Header,
     node: &'a codec::Node,
 }
 

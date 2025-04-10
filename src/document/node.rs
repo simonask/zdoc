@@ -1,14 +1,14 @@
 use core::iter::FusedIterator;
 
-use bytemuck::TransparentWrapper;
-
-use crate::internal;
+use crate::{access, internal};
 
 use super::{ValueRef, codec, raw};
 
 /// Node in a [`Document`](crate::Document).
 #[derive(Clone, Copy)]
 pub struct Node<'a> {
+    /// SAFETY INVARIANT: Must come from a valid (internally consistent)
+    /// document.
     raw: raw::RawNodeRef<'a>,
 }
 
@@ -105,44 +105,8 @@ impl<'a> Node<'a> {
 
     #[inline]
     #[must_use]
-    pub fn classify(&self) -> ClassifyNode {
-        let has_type = self.ty().is_some();
-        let naming = self.entries().classify_naming();
-
-        match naming {
-            ClassifyNaming::Empty => {
-                if has_type {
-                    return ClassifyNode::UnitVariant;
-                }
-                ClassifyNode::Unit
-            }
-            ClassifyNaming::AllNamed => {
-                if has_type {
-                    return ClassifyNode::StructVariant;
-                }
-                ClassifyNode::Struct
-            }
-            ClassifyNaming::AllUnnamed => {
-                let total_len = self.children().len() + self.args().len();
-                if total_len == 0 {
-                    unreachable!() // caught by classify_naming()
-                } else if total_len == 1 {
-                    if has_type {
-                        return ClassifyNode::ValueVariant;
-                    }
-                    return ClassifyNode::Value;
-                } else if has_type {
-                    return ClassifyNode::SeqVariant;
-                }
-                ClassifyNode::Seq
-            }
-            ClassifyNaming::Mixed => {
-                if has_type {
-                    return ClassifyNode::MixedVariant;
-                }
-                ClassifyNode::Mixed
-            }
-        }
+    pub fn classify(&self) -> crate::ClassifyNode {
+        crate::classify::classify_node(self)
     }
 
     #[inline]
@@ -166,7 +130,7 @@ impl<'a> Node<'a> {
     #[inline]
     #[must_use]
     pub fn is_mixed(&self) -> bool {
-        self.classify() == ClassifyNode::Mixed
+        self.classify() == crate::ClassifyNode::Mixed
     }
 
     #[must_use]
@@ -201,6 +165,15 @@ impl<'a> Entry<'a> {
         match self {
             Entry::Arg(arg) => arg.name,
             Entry::Child(node) => node.name(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn ty(&self) -> Option<&'a str> {
+        match self {
+            Entry::Arg(_) => None,
+            Entry::Child(node) => node.ty(),
         }
     }
 
@@ -245,124 +218,10 @@ impl core::fmt::Debug for Entry<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ClassifyNaming {
-    Empty,
-    AllNamed,
-    AllUnnamed,
-    Mixed,
-}
-
-/// Inferred classification of a node.
-///
-/// This is used during deserialization (in serde, to support
-/// `deserialize_any()`) to guess how a node should be deserialized.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ClassifyNode {
-    /// Key-value pairs, where all keys are strings.
-    ///
-    /// Conditions: All children and arguments are named, and the node does not
-    /// have a type.
-    ///
-    /// Serialized structs fall in this category.
-    Struct,
-    /// Key-value pairs, where all keys are strings and the node has a type.
-    ///
-    /// Conditions: All children and arguments are named, and the node has a
-    /// type.
-    StructVariant,
-    /// Sequence of arguments or children.
-    ///
-    /// Conditions: The node has at least 2 arguments and children, all children
-    /// and arguments are unnamed, and the node does not have a type.
-    Seq,
-    /// Sequence of arguments or children with a type.
-    ///
-    /// Conditions: The node has at least 2 arguments and children, all children
-    /// and arguments are unnamed, and the node has a type.
-    SeqVariant,
-    /// Single unnamed entry (argument xor child).
-    ///
-    /// Conditions: The argument is unnamed, and the node does not have a type.
-    Value,
-    /// Single unnamed entry with a type. This is used during
-    /// serialization/deserialization to represent newtype enum variants.
-    ///
-    /// Conditions: The argument is unnamed, and the node has a type.
-    ValueVariant,
-    /// Empty node without a type.
-    Unit,
-    /// Empty node with a type.
-    UnitVariant,
-    /// The node has a mixed bag of named and unnamed children and arguments.
-    Mixed,
-    /// The node has a mixed bag of named and unnamed children and arguments,
-    /// and it has a type.
-    MixedVariant,
-}
-
-impl ClassifyNode {
-    /// True if the node can be viewed as a list of unnamed items.
-    ///
-    /// This returns `true` for empty nodes and single-value nodes.
-    #[inline]
-    #[must_use]
-    pub fn is_list_like(&self) -> bool {
-        matches!(
-            self,
-            ClassifyNode::Seq
-                | ClassifyNode::SeqVariant
-                | ClassifyNode::Value
-                | ClassifyNode::ValueVariant
-                | ClassifyNode::Unit
-                | ClassifyNode::UnitVariant
-                | ClassifyNode::Mixed
-                | ClassifyNode::MixedVariant
-        )
-    }
-
-    /// True if the node can be viewed as a map of named items.
-    ///
-    /// This returns `true` for empty nodes.
-    #[inline]
-    #[must_use]
-    pub fn is_dictionary_like(&self) -> bool {
-        matches!(
-            self,
-            ClassifyNode::Struct
-                | ClassifyNode::StructVariant
-                | ClassifyNode::Unit
-                | ClassifyNode::UnitVariant
-                | ClassifyNode::Mixed
-                | ClassifyNode::MixedVariant
-        )
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct Entries<'a> {
     children: Children<'a>,
     args: Args<'a>,
-}
-
-impl Entries<'_> {
-    #[inline]
-    fn classify_naming(&self) -> ClassifyNaming {
-        let child_naming = self.children.classify_naming();
-        let arg_naming = self.args.classify_naming();
-        match (child_naming, arg_naming) {
-            (ClassifyNaming::Empty, ClassifyNaming::Empty) => ClassifyNaming::Empty,
-            (
-                ClassifyNaming::AllNamed | ClassifyNaming::Empty,
-                ClassifyNaming::AllNamed | ClassifyNaming::Empty,
-            ) => ClassifyNaming::AllNamed,
-            (
-                ClassifyNaming::AllUnnamed | ClassifyNaming::Empty,
-                ClassifyNaming::AllUnnamed | ClassifyNaming::Empty,
-            ) => ClassifyNaming::AllUnnamed,
-            _ => ClassifyNaming::Mixed,
-        }
-    }
 }
 
 impl<'a> IntoIterator for Entries<'a> {
@@ -378,6 +237,7 @@ impl<'a> IntoIterator for Entries<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct EntriesIter<'a> {
     // Note: `ArgsIter` is a `FusedIterator`.
     args: ArgsIter<'a>,
@@ -463,28 +323,6 @@ impl<'a> Children<'a> {
     fn get_by_name(&self, name: &str) -> Option<Node<'a>> {
         self.into_iter().rfind(|child| child.name() == Some(name))
     }
-
-    fn classify_naming(&self) -> ClassifyNaming {
-        let (named_count, unnamed_count) =
-            self.into_iter()
-                .fold((0, 0), |(named_count, unnamed_count), child| {
-                    if child.name().is_some() {
-                        (named_count + 1, unnamed_count)
-                    } else {
-                        (named_count, unnamed_count + 1)
-                    }
-                });
-
-        if named_count == 0 && unnamed_count == 0 {
-            ClassifyNaming::Empty
-        } else if named_count == 0 {
-            ClassifyNaming::AllUnnamed
-        } else if unnamed_count == 0 {
-            ClassifyNaming::AllNamed
-        } else {
-            ClassifyNaming::Mixed
-        }
-    }
 }
 
 impl<'a> IntoIterator for Children<'a> {
@@ -501,6 +339,7 @@ impl<'a> IntoIterator for Children<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct ChildrenIter<'a> {
     raw: raw::RawNodeChildren<'a>,
     range: core::ops::Range<usize>,
@@ -610,28 +449,6 @@ impl<'a> Args<'a> {
     pub fn get_by_name(&self, name: &str) -> Option<Arg<'a>> {
         self.into_iter().rfind(|arg| arg.name == Some(name))
     }
-
-    fn classify_naming(&self) -> ClassifyNaming {
-        let (named_count, unnamed_count) =
-            self.into_iter()
-                .fold((0, 0), |(named_count, unnamed_count), arg| {
-                    if arg.name.is_some() {
-                        (named_count + 1, unnamed_count)
-                    } else {
-                        (named_count, unnamed_count + 1)
-                    }
-                });
-
-        if named_count == 0 && unnamed_count == 0 {
-            ClassifyNaming::Empty
-        } else if named_count == 0 {
-            ClassifyNaming::AllUnnamed
-        } else if unnamed_count == 0 {
-            ClassifyNaming::AllNamed
-        } else {
-            ClassifyNaming::Mixed
-        }
-    }
 }
 
 impl<'a> IntoIterator for Args<'a> {
@@ -648,6 +465,7 @@ impl<'a> IntoIterator for Args<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct ArgsIter<'a> {
     raw: raw::RawNodeArgs<'a>,
     range: core::ops::Range<usize>,
@@ -725,175 +543,90 @@ impl<'a> From<ValueRef<'a>> for Arg<'a> {
 }
 
 impl core::fmt::Debug for Node<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if let Some(name) = self.name() {
-            write!(f, "{name} = ")?;
-        }
-
-        DebugNodeWithoutName::wrap_ref(self).fmt(f)
-    }
-}
-
-#[derive(bytemuck::TransparentWrapper)]
-#[repr(transparent)]
-struct DebugNodeWithoutName<'a>(Node<'a>);
-#[derive(bytemuck::TransparentWrapper)]
-#[repr(transparent)]
-struct DebugEntryWithoutName<'a>(Entry<'a>);
-#[derive(bytemuck::TransparentWrapper)]
-#[repr(transparent)]
-struct DebugEntryName<'a>(Entry<'a>);
-
-impl core::fmt::Debug for DebugNodeWithoutName<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let node = self.0;
-
-        if let Some(ty) = node.ty() {
-            write!(f, "{ty}")?;
-        }
-
-        match node.classify() {
-            ClassifyNode::Struct
-            | ClassifyNode::StructVariant
-            | ClassifyNode::Mixed
-            | ClassifyNode::MixedVariant => {
-                let mut debug_map = f.debug_map();
-                for entry in node.entries() {
-                    debug_map.entry(
-                        DebugEntryName::wrap_ref(&entry),
-                        DebugEntryWithoutName::wrap_ref(&entry),
-                    );
-                }
-                debug_map.finish()?;
-            }
-            ClassifyNode::Seq | ClassifyNode::SeqVariant => {
-                let mut debug_list = f.debug_list();
-                for entry in node.entries() {
-                    debug_list.entry(DebugEntryWithoutName::wrap_ref(&entry));
-                }
-                debug_list.finish()?;
-            }
-            ClassifyNode::Value => {
-                let first_entry = node.entries().into_iter().next().unwrap();
-                first_entry.fmt(f)?;
-            }
-            ClassifyNode::ValueVariant => {
-                let first_entry = node.entries().into_iter().next().unwrap();
-                write!(f, "({first_entry:?})")?;
-            }
-            ClassifyNode::Unit => {
-                f.write_str("()")?;
-            }
-            ClassifyNode::UnitVariant => {
-                // Wrote the type name.
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl core::fmt::Debug for DebugEntryWithoutName<'_> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.0 {
-            Entry::Arg(ref arg) => arg.value.fmt(f),
-            Entry::Child(ref node) => DebugNodeWithoutName::wrap_ref(node).fmt(f),
-        }
-    }
-}
-
-impl core::fmt::Debug for DebugEntryName<'_> {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if let Some(name) = self.0.name() {
-            f.write_str(name)?;
-        } else {
-            f.write_str("()")?;
-        }
-
-        Ok(())
+        crate::debug::debug_entry(&access::EntryRef::<Arg, _>::Child(*self)).fmt(f)
     }
 }
 
 impl core::fmt::Debug for Arg<'_> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if let Some(name) = self.name {
-            write!(f, "{name}=")?;
-        }
-        write!(f, "{:?}", self.value)
+        crate::debug::debug_entry(&access::EntryRef::<_, Node>::Arg(*self)).fmt(f)
     }
 }
 
 impl core::fmt::Debug for Children<'_> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.classify_naming() {
-            ClassifyNaming::Empty => f.write_str("()"),
-            ClassifyNaming::AllNamed | ClassifyNaming::Mixed => {
-                let mut debug_map = f.debug_map();
-                for child in self.into_iter().map(Entry::Child) {
-                    debug_map.key(DebugEntryName::wrap_ref(&child));
-                    debug_map.value(DebugEntryWithoutName::wrap_ref(&child));
-                }
-                debug_map.finish()
-            }
-            ClassifyNaming::AllUnnamed => {
-                let mut debug_list = f.debug_list();
-                for child in self.into_iter().map(Entry::Child) {
-                    debug_list.entry(DebugEntryWithoutName::wrap_ref(&child));
-                }
-                debug_list.finish()
-            }
-        }
+        crate::debug::debug_children(self.into_iter()).fmt(f)
     }
 }
 
 impl core::fmt::Debug for Args<'_> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.classify_naming() {
-            ClassifyNaming::Empty => f.write_str("()"),
-            ClassifyNaming::AllNamed | ClassifyNaming::Mixed => {
-                let mut debug_map = f.debug_map();
-                for arg in self.into_iter().map(Entry::Arg) {
-                    debug_map.key(DebugEntryName::wrap_ref(&arg));
-                    debug_map.value(DebugEntryWithoutName::wrap_ref(&arg));
-                }
-                debug_map.finish()
-            }
-            ClassifyNaming::AllUnnamed => {
-                let mut debug_list = f.debug_list();
-                for arg in self.into_iter().map(Entry::Arg) {
-                    debug_list.entry(DebugEntryWithoutName::wrap_ref(&arg));
-                }
-                debug_list.finish()
-            }
-        }
+        crate::debug::debug_args(self.into_iter()).fmt(f)
     }
 }
 
 impl core::fmt::Debug for Entries<'_> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.classify_naming() {
-            ClassifyNaming::Empty => f.write_str("()"),
-            ClassifyNaming::AllNamed | ClassifyNaming::Mixed => {
-                let mut debug_map = f.debug_map();
-                for entry in *self {
-                    debug_map.key(DebugEntryName::wrap_ref(&entry));
-                    debug_map.value(DebugEntryWithoutName::wrap_ref(&entry));
-                }
-                debug_map.finish()
-            }
-            ClassifyNaming::AllUnnamed => {
-                let mut debug_list = f.debug_list();
-                for entry in *self {
-                    debug_list.entry(DebugEntryWithoutName::wrap_ref(&entry));
-                }
-                debug_list.finish()
-            }
+        crate::debug::debug_entries(self.into_iter().map(Into::into)).fmt(f)
+    }
+}
+
+impl<'a> access::NodeRef<'a> for Node<'a> {
+    type ChildrenIter<'b>
+        = ChildrenIter<'b>
+    where
+        Self: 'b;
+
+    type ArgsIter<'b>
+        = ArgsIter<'b>
+    where
+        Self: 'b;
+
+    #[inline]
+    fn name(&self) -> &'a str {
+        Node::name(self).unwrap_or("")
+    }
+
+    #[inline]
+    fn ty(&self) -> &'a str {
+        Node::ty(self).unwrap_or("")
+    }
+
+    #[inline]
+    fn children(&self) -> Self::ChildrenIter<'a> {
+        Node::children(self).into_iter()
+    }
+
+    #[inline]
+    fn args(&self) -> Self::ArgsIter<'a> {
+        Node::args(self).into_iter()
+    }
+}
+
+impl<'a> access::ArgRef<'a> for Arg<'a> {
+    #[inline]
+    fn name(&self) -> &'a str {
+        self.name.unwrap_or("")
+    }
+
+    #[inline]
+    fn value(&self) -> ValueRef<'a> {
+        self.value
+    }
+}
+
+impl<'a> From<Entry<'a>> for access::EntryRef<Arg<'a>, Node<'a>> {
+    #[inline]
+    fn from(value: Entry<'a>) -> Self {
+        match value {
+            Entry::Arg(arg) => access::EntryRef::Arg(arg),
+            Entry::Child(node) => access::EntryRef::Child(node),
         }
     }
 }

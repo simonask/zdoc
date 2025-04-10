@@ -3,14 +3,15 @@ pub use raw::*;
 
 use core::mem;
 
-use alloc::{borrow::Cow, string::String, vec::Vec};
+use alloc::{borrow::Cow, string::String, vec, vec::Vec};
 use hashbrown::{HashMap, hash_map};
 
-use crate::{Document, DocumentBuffer, ValueRef, codec::StringRange, document};
+use crate::{Document, DocumentBuffer, ValueRef, access, codec::StringRange, document};
 
 /// Builder for [`Document`](crate::Document)s.
 ///
-/// Note that the builder can also act as a mutable document.
+/// The builder can be used as a mutable document, i.e. it also supports
+/// reading and deserialization.
 #[derive(Clone, Debug)]
 pub struct Builder<'a> {
     root: Node<'a>,
@@ -61,6 +62,12 @@ impl<'a> Builder<'a> {
     #[inline]
     pub fn set_root(&mut self, node: Node<'a>) {
         self.root = node;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn root(&self) -> &Node<'a> {
+        &self.root
     }
 
     #[inline]
@@ -116,7 +123,7 @@ impl BuildCache {
 ///
 /// This corresponds to the non-owning [`Node`](crate::Node) type, but may be
 /// owned by a [`Builder`].
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default)]
 pub struct Node<'a> {
     pub children: Cow<'a, [Node<'a>]>,
     pub args: Cow<'a, [Arg<'a>]>,
@@ -136,6 +143,24 @@ impl<'a> Node<'a> {
         }
     }
 
+    pub fn from_values(args: impl IntoIterator<Item = Value<'a>>) -> Self {
+        let args = args.into_iter().map(Arg::from).collect::<Vec<_>>();
+        let mut node = Self::empty();
+        node.set_args(args);
+        node
+    }
+
+    pub fn from_args(args: impl IntoIterator<Item = Arg<'a>>) -> Self {
+        let args = args.into_iter().collect::<Vec<_>>();
+        let mut node = Self::empty();
+        node.set_args(args);
+        node
+    }
+
+    /// Create a node from a serialized node coming from a
+    /// [`Document`](crate::Document).
+    ///
+    /// Strings and binary data will be borrowed from `node` rather than copied.
     pub fn from_document(node: document::Node<'a>) -> Self {
         let children = node
             .children()
@@ -204,24 +229,6 @@ impl<'a> Node<'a> {
         self
     }
 
-    /// Create a key-value node, which is a named node with a single unnamed
-    /// value argument or child.
-    ///
-    /// A "dictionary-like" node will have only key-value children.
-    pub fn key_value(key: impl Into<Cow<'a, str>>, value: impl IntoEntry<'a>) -> Self {
-        match value.into_entry() {
-            Entry::Arg(value) => {
-                let mut arg: Node = value.into();
-                arg.set_name(key.into());
-                arg
-            }
-            Entry::Child(mut child) => {
-                child.set_name(key);
-                child
-            }
-        }
-    }
-
     /// Create an unnamed node with a single value argument or child.
     ///
     /// A "list-like" node will have only unnamed children.
@@ -244,23 +251,16 @@ impl<'a> Node<'a> {
     }
 
     /// Add a key-value child to this node.
-    pub fn push_named(
-        &mut self,
-        name: impl Into<Cow<'a, str>>,
-        value: impl IntoEntry<'a>,
-    ) -> &mut Self {
-        let child = Self::key_value(name, value);
-        self.children_mut().push(child);
-        self
-    }
-
-    /// Add a key-value child to this node.
     pub fn push_named_with(
         &mut self,
         name: impl Into<Cow<'a, str>>,
-        value: impl FnOnce(&mut Node<'a>),
+        with: impl FnOnce(&mut Node<'a>),
     ) -> &mut Self {
-        self.push_named(name, value)
+        let mut node = Node::empty();
+        node.set_name(name);
+        with(&mut node);
+        self.push(node);
+        self
     }
 
     /// Push an unnamed child, treating this node as a list.
@@ -285,16 +285,16 @@ impl<'a> Node<'a> {
                     self.args_mut().push(arg);
                 } else {
                     for arg in mem::take(self.args_mut()) {
-                        self.children_mut().push(arg.into());
+                        self.children_mut().push(arg.into_key_value_node());
                     }
-                    self.children_mut().push(arg.into());
+                    self.children_mut().push(arg.into_key_value_node());
                 }
             }
             Entry::Child(node) => {
                 // Convert existing arguments to children in order to maintain
                 // their order.
                 for arg in mem::take(self.args_mut()) {
-                    self.children_mut().push(arg.into());
+                    self.children_mut().push(arg.into_key_value_node());
                 }
                 self.children_mut().push(node);
             }
@@ -389,27 +389,6 @@ impl<'a> Node<'a> {
     }
 }
 
-/// Creates an empty node with a single, potentially named, argument.
-impl<'a> From<Arg<'a>> for Node<'a> {
-    #[inline]
-    fn from(arg: Arg<'a>) -> Self {
-        let mut node = Node::empty();
-        node.set_name(arg.name.unwrap_or(Cow::Borrowed("")));
-        if !matches!(arg.value, Value::Null) {
-            node.push_arg(arg.value.into());
-        }
-        node
-    }
-}
-
-/// Creates an empty node with a single unnamed value argument.
-impl<'a> From<Value<'a>> for Node<'a> {
-    #[inline]
-    fn from(value: Value<'a>) -> Self {
-        Self::from(Arg::from(value))
-    }
-}
-
 impl<'a> From<crate::Node<'a>> for Node<'a> {
     fn from(value: crate::Node<'a>) -> Self {
         let mut node = Node::empty();
@@ -421,7 +400,14 @@ impl<'a> From<crate::Node<'a>> for Node<'a> {
     }
 }
 
-#[derive(Clone, Default, Debug)]
+impl<'a> core::fmt::Debug for Node<'a> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        crate::debug::debug_entry(&access::EntryRef::<&Arg<'a>, _>::Child(self)).fmt(f)
+    }
+}
+
+#[derive(Clone, Default)]
 pub struct Arg<'a> {
     pub name: Option<Cow<'a, str>>,
     pub value: Value<'a>,
@@ -450,6 +436,20 @@ impl<'a> Arg<'a> {
             value: value.into(),
         }
     }
+
+    #[inline]
+    #[must_use]
+    pub fn into_key_value_node(self) -> Node<'a> {
+        Node {
+            children: Cow::Borrowed(&[]),
+            args: Cow::Owned(vec![Arg {
+                name: None,
+                value: self.value,
+            }]),
+            name: self.name.unwrap_or_default(),
+            ty: Cow::Borrowed(""),
+        }
+    }
 }
 
 impl<'a> From<Value<'a>> for Arg<'a> {
@@ -466,6 +466,13 @@ impl<'a> From<crate::Arg<'a>> for Arg<'a> {
             name: value.name.map(Cow::Borrowed),
             value: value.value.into(),
         }
+    }
+}
+
+impl<'a> core::fmt::Debug for Arg<'a> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        crate::debug::debug_entry(&access::EntryRef::<_, &Node<'a>>::Arg(self)).fmt(f)
     }
 }
 
@@ -486,14 +493,11 @@ impl<'a> Entry<'a> {
     }
 
     #[inline]
-    pub fn set_name(&mut self, name: &'a str) {
+    pub fn set_name(&mut self, name: impl Into<Cow<'a, str>>) {
+        let name = name.into();
         match self {
             Entry::Arg(arg) => {
-                arg.name = if name.is_empty() {
-                    None
-                } else {
-                    Some(Cow::Borrowed(name))
-                };
+                arg.name = if name.is_empty() { None } else { Some(name) };
             }
             Entry::Child(node) => {
                 node.set_name(name);
@@ -501,25 +505,37 @@ impl<'a> Entry<'a> {
         }
     }
 
-    /// If the entry is an argument, convert it to a child node with a single
-    /// value argument, preserving the name. If the value is null, the node will
-    /// be empty.
     #[inline]
-    pub fn ensure_node(&mut self) -> &mut Node<'a> {
+    pub fn reset_as_value(&mut self) -> &mut Value<'a> {
         match self {
-            Entry::Arg(arg) => {
-                let node = mem::take(arg).into();
-                *self = Self::Child(node);
-                let Entry::Child(child) = self else {
+            Entry::Arg(arg) => &mut arg.value,
+            Entry::Child(_) => {
+                *self = Entry::Arg(Arg {
+                    name: None,
+                    value: Value::Null,
+                });
+                let Entry::Arg(arg) = self else {
                     unreachable!()
                 };
-                child
+                &mut arg.value
+            }
+        }
+    }
+
+    #[inline]
+    pub fn reset_as_node(&mut self) -> &mut Node<'a> {
+        match self {
+            Entry::Arg(_) => {
+                *self = Entry::Child(Node::empty());
+                let Entry::Child(node) = self else {
+                    unreachable!()
+                };
+                node
             }
             Entry::Child(node) => node,
         }
     }
 }
-
 impl<'a> From<Arg<'a>> for Entry<'a> {
     #[inline]
     fn from(value: Arg<'a>) -> Self {
@@ -545,9 +561,16 @@ impl<'a> From<Entry<'a>> for Node<'a> {
     #[inline]
     fn from(value: Entry<'a>) -> Self {
         match value {
-            Entry::Arg(arg) => arg.into(),
+            Entry::Arg(arg) => arg.into_key_value_node(),
             Entry::Child(node) => node,
         }
+    }
+}
+
+impl core::fmt::Debug for Entry<'_> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        crate::debug::debug_entry(&self.into()).fmt(f)
     }
 }
 
@@ -830,6 +853,62 @@ impl Strings {
                 self.buffer.push_str(s);
                 *entry.insert(StringRange { start, len })
             }
+        }
+    }
+}
+
+impl<'a, 'c: 'a> access::NodeRef<'a> for &'a Node<'c> {
+    type ChildrenIter<'b>
+        = core::slice::Iter<'b, Node<'c>>
+    where
+        Self: 'b,
+        'c: 'b;
+
+    type ArgsIter<'b>
+        = core::slice::Iter<'b, Arg<'c>>
+    where
+        Self: 'b,
+        'c: 'b;
+
+    #[inline]
+    fn name(&self) -> &'a str {
+        &self.name
+    }
+
+    #[inline]
+    fn ty(&self) -> &'a str {
+        &self.ty
+    }
+
+    #[inline]
+    fn children(&self) -> Self::ChildrenIter<'a> {
+        self.children.iter()
+    }
+
+    #[inline]
+    fn args(&self) -> Self::ArgsIter<'a> {
+        self.args.iter()
+    }
+}
+
+impl<'a> access::ArgRef<'a> for &'a Arg<'_> {
+    #[inline]
+    fn name(&self) -> &'a str {
+        self.name.as_deref().unwrap_or_default()
+    }
+
+    #[inline]
+    fn value(&self) -> ValueRef<'a> {
+        (&self.value).into()
+    }
+}
+
+impl<'a, 'b> From<&'a Entry<'b>> for access::EntryRef<&'a Arg<'b>, &'a Node<'b>> {
+    #[inline]
+    fn from(value: &'a Entry<'b>) -> Self {
+        match value {
+            Entry::Arg(arg) => access::EntryRef::Arg(arg),
+            Entry::Child(node) => access::EntryRef::Child(node),
         }
     }
 }

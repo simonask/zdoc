@@ -1,18 +1,6 @@
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("invalid magic bytes in document")]
-    InvalidMagic,
-    #[error("invalid document version")]
-    InvalidVersion(u32),
-    #[error("document is too small")]
-    InvalidSize,
-    #[error("invalid header")]
-    InvalidHeader,
-    #[error("string section contains invalid UTF-8")]
-    InvalidUtf8,
-    #[error(transparent)]
-    Corrupt(#[from] CorruptError),
     #[error("the target format cannot represent this value: {0}")]
     UnrepresentableInt(i64),
     #[error("the target format cannot represent this value: {0}")]
@@ -21,11 +9,13 @@ pub enum Error {
     UnrepresentableFloat(f64),
     #[error("the target format cannot represent binary data")]
     UnrepresentableBinary,
+    #[error("the string is not valid UTF-8")]
+    UnrepresentableString,
     #[error("special field in the target format was clobbered by a child or argument of a node")]
     ClobberedField,
     #[cfg(feature = "alloc")]
-    #[error(transparent)]
-    Custom(alloc::boxed::Box<dyn core::error::Error + Send + Sync>),
+    #[error("{0}")]
+    Custom(alloc::string::String),
 }
 
 impl Error {
@@ -35,35 +25,59 @@ impl Error {
     where
         E: core::error::Error + Send + Sync + 'static,
     {
-        Self::Custom(alloc::boxed::Box::new(error))
+        use alloc::string::ToString as _;
+        Self::Custom(error.to_string())
     }
 
     #[cfg(feature = "alloc")]
     pub fn msg<T: core::fmt::Display>(msg: T) -> Self {
         use alloc::string::ToString as _;
-        #[derive(Debug)]
-        struct Message(alloc::string::String);
-        impl core::error::Error for Message {}
-        impl core::fmt::Display for Message {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                f.write_str(&self.0)
-            }
-        }
-        Self::Custom(alloc::boxed::Box::new(Message(msg.to_string())))
+        Self::Custom(msg.to_string())
     }
 }
 
+/// Validation error when checking the integrity of the binary encoding of a
+/// document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("{error}, offset {offset}")]
-pub struct CorruptError {
+pub struct ValidationError {
     /// Byte offset in the file where the error occurred.
-    pub offset: u32,
+    pub offset: usize,
     /// Kind of error that occurred.
-    pub error: CorruptErrorKind,
+    pub error: ValidationErrorKind,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum CorruptErrorKind {
+pub enum ValidationErrorKind {
+    #[error("header magic bytes are invalid")]
+    HeaderMagic,
+    #[error("header version field indicates an unsupported version: {0}")]
+    HeaderVersion(u32),
+    #[error("header size field does not match the actual size of the document")]
+    HeaderSize,
+    #[error("header nodes offset field is invalid")]
+    HeaderNodesOffset,
+    #[error("header nodes length field is invalid")]
+    HeaderNodesLen,
+    #[error("header args offset field is invalid")]
+    HeaderArgsOffset,
+    #[error("header args length field is invalid")]
+    HeaderArgsLen,
+    #[error("header strings offset field is invalid")]
+    HeaderStringsOffset,
+    #[error("header strings length field is invalid")]
+    HeaderStringsLen,
+    #[error("header binary offset field is invalid")]
+    HeaderBinaryOffset,
+    #[error("header binary length field is invalid")]
+    HeaderBinaryLen,
+    #[error("header root node index is out of bounds")]
+    HeaderRootNodeOutOfBounds,
+    #[error("header reserved fields must be zero")]
+    HeaderReservedFieldsMustBeZero,
+    #[error("sections overlap")]
+    HeaderSectionsOverlap,
+
     #[error("range length overflow")]
     LengthOverflow,
     #[error("children node range out of bounds")]
@@ -84,15 +98,31 @@ pub enum CorruptErrorKind {
     ChildrenBeforeParent,
 }
 
-impl CorruptErrorKind {
+impl ValidationErrorKind {
     #[inline]
     #[must_use]
-    pub(crate) fn with_offset(self, offset: u32) -> CorruptError {
-        CorruptError {
-            offset,
+    pub(crate) fn at_offset(self, offset: impl Offset) -> ValidationError {
+        ValidationError {
+            offset: offset.offset(),
             error: self,
         }
     }
 }
 
 pub type Result<T, E = Error> = core::result::Result<T, E>;
+
+pub(crate) trait Offset {
+    fn offset(self) -> usize;
+}
+impl Offset for usize {
+    #[inline]
+    fn offset(self) -> usize {
+        self
+    }
+}
+impl Offset for u32 {
+    #[inline]
+    fn offset(self) -> usize {
+        self as usize
+    }
+}

@@ -69,9 +69,7 @@ pub use error::*;
 /// # Errors
 ///
 /// If the value cannot be serialized, this returns an error.
-pub fn to_document_builder<T: serde::Serialize>(
-    value: &T,
-) -> Result<crate::Builder<'static>, Error> {
+pub fn to_builder<'a, T: serde::Serialize>(value: &T) -> Result<crate::Builder<'a>, Error> {
     let mut builder = crate::Builder::new();
     value.serialize(builder.root_mut())?;
     Ok(builder)
@@ -84,7 +82,22 @@ pub fn to_document_builder<T: serde::Serialize>(
 ///
 /// If the value cannot be serialized, this returns an error.
 pub fn to_document<T: serde::Serialize>(value: &T) -> Result<crate::DocumentBuffer, Error> {
-    to_document_builder(value).map(|builder| builder.build())
+    to_builder(value).map(|builder| builder.build())
+}
+
+/// Deserialize a [`Builder`](crate::Builder) into a value of type `T`,
+/// borrowing strings and binary data from the document.
+///
+/// See [`to_builder`] for the conventions and assumptions of the structure of
+/// serialized data.
+///
+/// # Errors
+///
+/// If the document cannot be deserialized into `T`, this returns an error.
+pub fn from_builder<'a, T: serde::Deserialize<'a>>(
+    builder: &'a crate::Builder,
+) -> Result<T, Error> {
+    serde::de::Deserialize::deserialize(de::DeNode(builder.root()))
 }
 
 /// Deserialize a [`Document`](crate::Document) into a value of type `T`,
@@ -99,26 +112,83 @@ pub fn to_document<T: serde::Serialize>(value: &T) -> Result<crate::DocumentBuff
 pub fn from_document<'a, T: serde::Deserialize<'a>>(
     document: &'a crate::Document,
 ) -> Result<T, Error> {
-    serde::de::Deserialize::deserialize(document.root())
+    serde::de::Deserialize::deserialize(de::DeNode(document.root()))
+}
+
+impl<'de> serde::de::IntoDeserializer<'de, Error> for crate::Node<'de> {
+    type Deserializer = de::DeNode<Self>;
+
+    #[inline]
+    fn into_deserializer(self) -> Self::Deserializer {
+        de::DeNode(self)
+    }
+}
+
+impl<'de> serde::de::IntoDeserializer<'de, Error> for &'de crate::builder::Node<'de> {
+    type Deserializer = de::DeNode<Self>;
+
+    #[inline]
+    fn into_deserializer(self) -> Self::Deserializer {
+        de::DeNode(self)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     extern crate std;
     use alloc::{
+        borrow::{Cow, ToOwned as _},
         boxed::Box,
+        collections::btree_map::BTreeMap,
         string::{String, ToString as _},
-        {vec, vec::Vec},
+        vec,
+        vec::Vec,
     };
+    use serde::{Deserialize, de::IntoDeserializer};
 
-    use crate::{Arg, ValueRef};
+    use crate::{Arg, ValueRef, builder};
 
     use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Bytes(Vec<u8>);
+    impl serde::Serialize for Bytes {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            serializer.serialize_bytes(&self.0)
+        }
+    }
+    impl<'de> serde::Deserialize<'de> for Bytes {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            struct Visitor;
+            impl serde::de::Visitor<'_> for Visitor {
+                type Value = Bytes;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    write!(formatter, "expected binary")
+                }
+
+                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    Ok(Bytes(v.to_owned()))
+                }
+            }
+
+            deserializer.deserialize_bytes(Visitor)
+        }
+    }
 
     #[test]
     fn unit() {
         let doc = to_document(&()).unwrap();
-        assert_eq!(doc.as_bytes().len(), 0);
+        assert_eq!(doc.as_bytes().len(), 64); // just the header
         assert!(doc.is_empty());
         let _: () = from_document(&doc).unwrap();
     }
@@ -389,5 +459,232 @@ mod tests {
                 vec: vec![1, 2],
             }
         );
+    }
+
+    #[test]
+    fn primitive() {
+        fn primitive_roundtrip<
+            T: serde::Serialize + for<'de> serde::Deserialize<'de> + core::fmt::Debug + PartialEq,
+        >(
+            value: &T,
+            expected: builder::Value<'_>,
+        ) {
+            let builder = to_builder(&value).unwrap();
+            let doc = builder.build();
+            assert_eq!(builder.root(), doc.root());
+            assert_eq!(
+                doc.root(),
+                builder::Node {
+                    children: Cow::Borrowed(&[]),
+                    args: Cow::Borrowed(&[builder::Arg {
+                        name: None,
+                        value: expected,
+                    }]),
+                    name: "".into(),
+                    ty: "".into(),
+                }
+            );
+            let a = T::deserialize(doc.root().into_deserializer()).unwrap();
+            let b = T::deserialize(builder.root().into_deserializer()).unwrap();
+            assert_eq!(a, b);
+        }
+
+        primitive_roundtrip(&true, builder::Value::Bool(true));
+        primitive_roundtrip(&false, builder::Value::Bool(false));
+        primitive_roundtrip(&123i8, builder::Value::Int(123));
+        primitive_roundtrip(&123i16, builder::Value::Int(123));
+        primitive_roundtrip(&123i32, builder::Value::Int(123));
+        primitive_roundtrip(&123i64, builder::Value::Int(123));
+        primitive_roundtrip(&123u8, builder::Value::Uint(123));
+        primitive_roundtrip(&123u16, builder::Value::Uint(123));
+        primitive_roundtrip(&123u32, builder::Value::Uint(123));
+        primitive_roundtrip(&123u64, builder::Value::Uint(123));
+        primitive_roundtrip(&123.0f32, builder::Value::Float(123.0));
+        primitive_roundtrip(&123.0f64, builder::Value::Float(123.0));
+        primitive_roundtrip(
+            &String::from("hello"),
+            builder::Value::String("hello".into()),
+        );
+        primitive_roundtrip(
+            &Bytes(Vec::from(&[1u8, 2, 3])),
+            builder::Value::Binary((&[1, 2, 3]).into()),
+        );
+
+        primitive_roundtrip(&Some(true), builder::Value::Bool(true));
+        primitive_roundtrip(&Some(false), builder::Value::Bool(false));
+        primitive_roundtrip(&Some(123i8), builder::Value::Int(123));
+        primitive_roundtrip(&Some(123i16), builder::Value::Int(123));
+        primitive_roundtrip(&Some(123i32), builder::Value::Int(123));
+        primitive_roundtrip(&Some(123i64), builder::Value::Int(123));
+        primitive_roundtrip(&Some(123u8), builder::Value::Uint(123));
+        primitive_roundtrip(&Some(123u16), builder::Value::Uint(123));
+        primitive_roundtrip(&Some(123u32), builder::Value::Uint(123));
+        primitive_roundtrip(&Some(123u64), builder::Value::Uint(123));
+        primitive_roundtrip(&Some(123.0f32), builder::Value::Float(123.0));
+        primitive_roundtrip(&Some(123.0f64), builder::Value::Float(123.0));
+        primitive_roundtrip(
+            &Some(String::from("hello")),
+            builder::Value::String("hello".into()),
+        );
+        primitive_roundtrip(
+            &Some(Bytes(Vec::from(&[1u8, 2, 3]))),
+            builder::Value::Binary((&[1, 2, 3]).into()),
+        );
+
+        primitive_roundtrip(&None::<bool>, builder::Value::Null);
+        primitive_roundtrip(&None::<i8>, builder::Value::Null);
+        primitive_roundtrip(&None::<i16>, builder::Value::Null);
+        primitive_roundtrip(&None::<i32>, builder::Value::Null);
+        primitive_roundtrip(&None::<i64>, builder::Value::Null);
+        primitive_roundtrip(&None::<u8>, builder::Value::Null);
+        primitive_roundtrip(&None::<u16>, builder::Value::Null);
+        primitive_roundtrip(&None::<u32>, builder::Value::Null);
+        primitive_roundtrip(&None::<u64>, builder::Value::Null);
+        primitive_roundtrip(&None::<f32>, builder::Value::Null);
+        primitive_roundtrip(&None::<f64>, builder::Value::Null);
+        primitive_roundtrip(&None::<String>, builder::Value::Null);
+        primitive_roundtrip(&None::<Bytes>, builder::Value::Null);
+
+        primitive_roundtrip(&Some(Some(123i32)), builder::Value::Int(123));
+        primitive_roundtrip(&Some(None::<i32>), builder::Value::Null);
+    }
+
+    #[test]
+    fn newtype_struct() {
+        #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+        struct Foo(String);
+        let foo = Foo("hello".to_string());
+        let builder = to_builder(&foo).unwrap();
+        let doc = builder.build();
+        assert_eq!(
+            doc.root(),
+            builder::Node {
+                children: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[builder::Arg {
+                    name: None,
+                    value: builder::Value::String("hello".into()),
+                }]),
+                name: "".into(),
+                ty: "".into(),
+            }
+        );
+        assert_eq!(doc.root(), builder.root());
+        let foo1 = Foo::deserialize(doc.root().into_deserializer()).unwrap();
+        let foo2 = Foo::deserialize(builder.root().into_deserializer()).unwrap();
+        assert_eq!(foo1, foo2);
+    }
+
+    #[test]
+    fn tuple_struct() {
+        #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+        struct Foo(String, i32);
+        let foo = Foo("hello".to_string(), 123);
+        let builder = to_builder(&foo).unwrap();
+        let doc = builder.build();
+        assert_eq!(
+            doc.root(),
+            builder::Node {
+                children: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[
+                    builder::Arg {
+                        name: None,
+                        value: builder::Value::String("hello".into()),
+                    },
+                    builder::Arg {
+                        name: None,
+                        value: builder::Value::Int(123)
+                    }
+                ]),
+                name: "".into(),
+                ty: "".into(),
+            }
+        );
+        assert_eq!(doc.root(), builder.root());
+        let foo1 = Foo::deserialize(doc.root().into_deserializer()).unwrap();
+        let foo2 = Foo::deserialize(builder.root().into_deserializer()).unwrap();
+        assert_eq!(foo1, foo2);
+    }
+
+    #[test]
+    fn mapping_newtype_key() {
+        #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+        struct Key(String);
+        let mut map = BTreeMap::new();
+        map.insert(Key(String::from("a")), 1i32);
+        map.insert(Key(String::from("b")), 2i32);
+        map.insert(Key(String::from("c")), 3i32);
+        let builder = to_builder(&map).unwrap();
+        let doc = builder.build();
+        assert_eq!(doc.root(), builder.root());
+        assert_eq!(
+            doc.root(),
+            builder::Node {
+                children: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[
+                    builder::Arg {
+                        name: Some("a".into()),
+                        value: builder::Value::Int(1),
+                    },
+                    builder::Arg {
+                        name: Some("b".into()),
+                        value: builder::Value::Int(2),
+                    },
+                    builder::Arg {
+                        name: Some("c".into()),
+                        value: builder::Value::Int(3),
+                    }
+                ]),
+                name: "".into(),
+                ty: "".into()
+            }
+        );
+        let map1 = BTreeMap::deserialize(doc.root().into_deserializer()).unwrap();
+        let map2 = BTreeMap::deserialize(builder.root().into_deserializer()).unwrap();
+        assert_eq!(map1, map);
+        assert_eq!(map2, map);
+    }
+
+    #[test]
+    fn mapping_enum_key() {
+        #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug)]
+        enum Key {
+            A,
+            B,
+            C,
+        }
+
+        let mut map = BTreeMap::new();
+        map.insert(Key::A, 1i32);
+        map.insert(Key::B, 2i32);
+        map.insert(Key::C, 3i32);
+        let builder = to_builder(&map).unwrap();
+        let doc = builder.build();
+        assert_eq!(doc.root(), builder.root());
+        assert_eq!(
+            doc.root(),
+            builder::Node {
+                children: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[
+                    builder::Arg {
+                        name: Some("A".into()),
+                        value: builder::Value::Int(1),
+                    },
+                    builder::Arg {
+                        name: Some("B".into()),
+                        value: builder::Value::Int(2),
+                    },
+                    builder::Arg {
+                        name: Some("C".into()),
+                        value: builder::Value::Int(3),
+                    }
+                ]),
+                name: "".into(),
+                ty: "".into()
+            }
+        );
+        let map1 = BTreeMap::deserialize(doc.root().into_deserializer()).unwrap();
+        let map2 = BTreeMap::deserialize(builder.root().into_deserializer()).unwrap();
+        assert_eq!(map1, map);
+        assert_eq!(map2, map);
     }
 }

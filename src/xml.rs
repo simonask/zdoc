@@ -231,7 +231,7 @@ impl XmlSettings<'_> {
                 Event::CData(cdata) => {
                     let inner = cdata.into_inner();
                     let text = alloc::string::String::from_utf8(inner.into_owned())
-                        .map_err(|_| Error::InvalidUtf8)?;
+                        .map_err(|_| Error::UnrepresentableString)?;
                     let mut child = builder::Node::empty();
                     child.push_unnamed_arg(text);
                     node.push(child);
@@ -277,7 +277,7 @@ impl XmlSettings<'_> {
             .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
             .map_err(Error::custom)?;
         self.write_node(&mut writer, doc.root())?;
-        alloc::string::String::from_utf8(out).map_err(|_| Error::InvalidUtf8)
+        alloc::string::String::from_utf8(out).map_err(|_| Error::UnrepresentableString)
     }
 
     fn write_node(&self, writer: &mut Writer<&mut Vec<u8>>, node: crate::Node) -> Result<()> {
@@ -376,7 +376,7 @@ fn value_to_attribute<'a>(name: &'a str, value: ValueRef<'a>) -> Result<Attribut
 fn string_from_bytes(bytes: &[u8]) -> Result<Cow<'static, str>> {
     core::str::from_utf8(bytes)
         .map(|s| Cow::Owned(s.to_owned()))
-        .map_err(|_| Error::InvalidUtf8)
+        .map_err(|_| Error::UnrepresentableString)
 }
 
 #[inline]
@@ -386,7 +386,7 @@ fn qname_to_string(qname: QName<'_>) -> Result<Cow<'static, str>> {
 
 #[inline]
 fn qname_ref_to_string(qname: QName<'_>) -> Result<&'_ str> {
-    core::str::from_utf8(qname.0).map_err(|_| Error::InvalidUtf8)
+    core::str::from_utf8(qname.0).map_err(|_| Error::UnrepresentableString)
 }
 
 #[cfg(test)]

@@ -11,21 +11,23 @@
 
 use core::mem::offset_of;
 
-use crate::CorruptErrorKind;
+use crate::ValidationErrorKind;
 
-pub const MAGIC: [u8; 8] = *b"ZDOC\0\0\0\0";
+pub const MAGIC: [u8; 8] = *b"zdoc\0\0\0\0";
 pub const VERSION: u32 = 1;
 
 #[cfg(not(target_endian = "little"))]
 compile_error!("Unsupported target endian");
 
+/// Header of a zdoc document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
 pub struct Header {
+    /// Magic bytes. Must be "zdoc\0\0\0\0" (8 bytes).
     pub magic: [u8; 8],
-    /// Document format version,
+    /// Document format version, must be 1.
     pub version: u32,
-    /// Byte offset of the root node.
+    /// Index of the root node. Must be zero or less than `nodes_len`.
     pub root_node_index: u32,
     /// Size of the document in bytes, including the header.
     pub size: u32,
@@ -56,6 +58,8 @@ pub struct Header {
     pub reserved3: u32,
 }
 
+// Static checks to ensure that the `#[repr(C)]` representation of the struct
+// for this platform matches expectations.
 const _: () = {
     assert!(
         size_of::<Header>() == 64,
@@ -84,25 +88,23 @@ const _: () = {
     assert!(offset_of!(Header, reserved3) == 60, "unexpected offset");
 };
 
-impl Header {
-    pub const DEFAULT: Header = Header {
-        magic: MAGIC,
-        version: VERSION,
-        size: 0,
-        root_node_index: 0,
-        nodes_offset: 0,
-        nodes_len: 0,
-        args_offset: 0,
-        args_len: 0,
-        strings_offset: 0,
-        strings_len: 0,
-        binary_offset: 0,
-        binary_len: 0,
-        reserved1: 0,
-        reserved2: 0,
-        reserved3: 0,
-    };
-}
+pub static DEFAULT_HEADER: Header = Header {
+    magic: MAGIC,
+    version: VERSION,
+    size: size_of::<Header>() as u32,
+    root_node_index: 0,
+    nodes_offset: 0,
+    nodes_len: 0,
+    args_offset: 0,
+    args_len: 0,
+    strings_offset: 0,
+    strings_len: 0,
+    binary_offset: 0,
+    binary_len: 0,
+    reserved1: 0,
+    reserved2: 0,
+    reserved3: 0,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
@@ -113,6 +115,8 @@ pub struct Node {
     pub ty: StringRange,
 }
 
+// Static checks to ensure that the `#[repr(C)]` representation of the struct
+// for this platform matches expectations.
 const _: () = {
     assert!(
         size_of::<Node>() == 32,
@@ -140,6 +144,8 @@ pub struct Arg {
     pub value: Value,
 }
 
+// Static checks to ensure that the `#[repr(C)]` representation of the struct
+// for this platform matches expectations.
 const _: () = {
     assert!(
         size_of::<Arg>() == 20,
@@ -170,6 +176,8 @@ impl Value {
     };
 }
 
+// Static checks to ensure that the `#[repr(C)]` representation of the struct
+// for this platform matches expectations.
 const _: () = {
     assert!(
         size_of::<Value>() == 12,
@@ -247,7 +255,7 @@ pub enum RawValue {
 }
 
 impl TryFrom<Value> for RawValue {
-    type Error = CorruptErrorKind;
+    type Error = ValidationErrorKind;
 
     #[inline]
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -259,7 +267,7 @@ impl TryFrom<Value> for RawValue {
             4 => RawValue::Float(f64::from_le_bytes(value.payload)),
             5 => RawValue::String(bytemuck::cast(value.payload)),
             6 => RawValue::Binary(bytemuck::cast(value.payload)),
-            _ => return Err(CorruptErrorKind::InvalidArgumentType),
+            _ => return Err(ValidationErrorKind::InvalidArgumentType),
         })
     }
 }

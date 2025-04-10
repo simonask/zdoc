@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::ValidationError;
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -28,7 +28,7 @@ impl DocumentBuffer {
     /// If the bytes in `buffer` are not a valid document, this returns an
     /// error. Note that an empty buffer is a valid document.
     #[inline]
-    pub fn from_buffer(buffer: Vec<u8>) -> Result<Self, Error> {
+    pub fn from_buffer(buffer: Vec<u8>) -> Result<Self, ValidationError> {
         let raw = raw::RawDocumentBuffer::from_buffer(buffer);
         raw.check().map(|()| unsafe {
             // SAFETY: Safety checks passed.
@@ -59,7 +59,7 @@ impl DocumentBuffer {
     ///
     /// If the document is invalid, this returns an error.
     #[inline]
-    pub fn from_raw(raw: raw::RawDocumentBuffer) -> Result<Self, Error> {
+    pub fn from_raw(raw: raw::RawDocumentBuffer) -> Result<Self, ValidationError> {
         raw.check()?;
         unsafe {
             // SAFETY: Safety checks passed.
@@ -108,7 +108,7 @@ impl core::ops::Deref for DocumentBuffer {
 
 #[cfg(feature = "alloc")]
 impl TryFrom<raw::RawDocumentBuffer> for DocumentBuffer {
-    type Error = Error;
+    type Error = ValidationError;
 
     #[inline]
     fn try_from(value: raw::RawDocumentBuffer) -> Result<Self, Self::Error> {
@@ -125,11 +125,20 @@ impl TryFrom<raw::RawDocumentBuffer> for DocumentBuffer {
 /// All subsequent access to the contents of the document has zero validation
 /// overhead.
 #[repr(transparent)]
+#[derive(PartialEq, Eq)]
 pub struct Document {
     raw: raw::RawDocument,
 }
 
 impl Document {
+    #[must_use]
+    pub const fn empty() -> &'static Document {
+        unsafe {
+            // SAFETY: The empty document is always valid.
+            Self::from_raw_unchecked(raw::RawDocument::empty())
+        }
+    }
+
     /// Validate a block of bytes as a document, and wrap the slice.
     ///
     /// Note that `slice` must contain a valid document. The empty slice is a
@@ -139,7 +148,7 @@ impl Document {
     ///
     /// If the bytes in `slice` are not a valid document, this returns an error.
     #[inline]
-    pub fn from_slice(slice: &[u8]) -> Result<&Self, Error> {
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, ValidationError> {
         let raw = raw::RawDocument::from_slice(slice);
         Self::try_from_raw(raw)
     }
@@ -166,7 +175,7 @@ impl Document {
     ///
     /// If the document is invalid, this returns an error.
     #[inline]
-    pub fn try_from_raw(raw: &raw::RawDocument) -> Result<&Self, Error> {
+    pub fn try_from_raw(raw: &raw::RawDocument) -> Result<&Self, ValidationError> {
         raw.check()?;
 
         unsafe {
@@ -182,7 +191,7 @@ impl Document {
     /// The document must be valid.
     #[inline]
     #[must_use]
-    pub unsafe fn from_raw_unchecked(raw: &raw::RawDocument) -> &Self {
+    pub const unsafe fn from_raw_unchecked(raw: &raw::RawDocument) -> &Self {
         unsafe {
             // SAFETY: Invariants of this function.
             &*(core::ptr::from_ref::<raw::RawDocument>(raw) as *const Self)
@@ -214,7 +223,7 @@ impl Document {
     #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.as_bytes().is_empty()
+        self.raw.header().nodes_len == 0
     }
 
     #[inline]
@@ -232,7 +241,7 @@ impl core::fmt::Debug for Document {
 }
 
 impl<'a> TryFrom<&'a raw::RawDocument> for &'a Document {
-    type Error = Error;
+    type Error = ValidationError;
 
     #[inline]
     fn try_from(value: &'a raw::RawDocument) -> Result<Self, Self::Error> {
