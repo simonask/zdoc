@@ -687,4 +687,42 @@ mod tests {
         assert_eq!(map1, map);
         assert_eq!(map2, map);
     }
+
+    #[test]
+    fn tuple_1_arg() {
+        let foo = &(1i32,);
+        let builder = to_builder(&foo).unwrap();
+        let doc = builder.build();
+        assert_eq!(doc.root(), builder.root());
+        assert_eq!(
+            doc.root(),
+            builder::Node::from_values([builder::Value::Int(1)])
+        );
+        let bar: (i32,) = Deserialize::deserialize(doc.root().into_deserializer()).unwrap();
+        assert_eq!(*foo, bar);
+    }
+
+    #[test]
+    fn tuple_1_child() {
+        let foo = &(Struct {
+            string: String::from("hello"),
+            int: 123,
+            enum_: Enum::UnitVariant,
+            vec: vec![1, 2],
+        },);
+        let builder = to_builder(&foo).unwrap();
+        let doc = builder.build();
+        assert_eq!(doc.root(), builder.root());
+        assert_eq!(
+            doc.root(),
+            builder::Node::from_entries([builder::Node::from_entries([
+                ("string", builder::Value::String("hello".into())),
+                ("int", builder::Value::Int(123)),
+                ("enum_", builder::Value::String("UnitVariant".into())),
+            ])
+            .with_entry(("vec", vec![1i32, 2]))])
+        );
+        let bar: (Struct,) = Deserialize::deserialize(doc.root().into_deserializer()).unwrap();
+        assert_eq!(*foo, bar);
+    }
 }
