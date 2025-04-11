@@ -1,78 +1,102 @@
+//! Serialization support via `serde`.
+//!
+//! # Conventions
+//!
+//! zdoc is a very flexible format, so for the purposes of serialization, we are
+//! choosing a couple of conventional behaviors. These basically match the
+//! conventions of the KDL language. (The main difference is that nodes
+//! representing list items are nameless, rather than having the name "-").
+//!
+//! zdoc represents "values" as arguments to "nodes". Compound values can
+//! consist of both arguments and children with arguments, but arguments cannot
+//! themselves be compound (like properties in XML).
+//!
+//! Note that serialization support requires the `alloc` feature, but
+//! deserialization does not.
+//!
+//! ## Lists and tuples
+//!
+//! 1. The list itself is always a node, because it is compound.
+//! 2. If every entry in a list/tuple is a simple value, all of its entries are
+//!    serialized as unnamed arguments.
+//! 3. If *any* entry is a compound value (a list, map, or enum variant), *all*
+//!    entries in the list or tuple are represented as (unnamed) child nodes of
+//!    the list instead of unnamed arguments.
+//!
+//! ## Maps (dictionaries)
+//!
+//! 1. The map itself is always a full node, because it is compound.
+//! 2. All keys in the map must be serializable as strings. If any key is not a
+//!    string, this returns an error. Note that newtype structs wrapping a
+//!    string (recursively) are supported.
+//! 3. If all values in the map are simple values, all of its entries are
+//!    serialized as named arguments, where the name of each argument is the
+//!    key.
+//! 4. If *any* value is a compound value (a list, map, or typed struct), *all*
+//!    entries in the map are represented as (named) children of the map
+//! 5. The order of map entries is always preserved.
+//!
+//! ## Struct and enum variants with named fields
+//!
+//! Structs are like maps, except that the order of fields is not preserved.
+//! Fields that can be serialized as simple values (ints, strings, floats, etc.)
+//! are serialized as node arguments, while fields that serialize as compound
+//! values are serialized as children of the node.
+//!
+//! ## Enums
+//!
+//! The name of the variant becomes the "type" of the node, except for unit
+//! variants (variants with no fields), which are serialized as string
+//! primitives.
+//!
+//! ## Other
+//!
+//! 1. `None` and the unit type `()` are serialized as a null value. When
+//!    represented as a child node, it is represented by the empty node.
+//! 2. Newtype structs (`struct Foo(Bar)`) are serialized as the inner value of
+//!    the struct. The `type` field is *not* set.
+//! 3. Newtype enum variants (`enum Foo { Bar(Baz) }`) are serialized as the
+//!    inner value of the variant. The `type` field is set to the name of the
+//!    variant.
+//! 4. Tuple structs are serialized as normal tuples. The `type` field is *not*
+//!    set.
+//! 5. Tuple enum variants are serialized as lists, but the `type` field is set
+//!    to the name of the variant.
+//! 6. Struct enum variants are serialized as structs, but the `type` field is
+//!    set to the name of the variant.
+
 mod de;
 mod error;
+#[cfg(feature = "alloc")]
 mod ser;
 
 pub use error::*;
 
-/// Serialize a value to a [`Builder`](crate::Builder), which can be used to
-/// make further modifications.
-///
-/// # Conventions
-///
-/// zdoc is a very flexible format, so for the purposes of serialization, we are
-/// choosing a couple of conventional behaviors. These mostly match the
-/// conventions of the KDL language.
-///
-/// zdoc represents "values" as arguments to "nodes". Compound values can
-/// consist of both arguments and children with arguments, but arguments cannot
-/// themselves be compound (like properties in XML).
-///
-/// ## Lists and tuples
-///
-/// 1. The list itself is always a child node, because it is compound.
-/// 2. If every entry in a list/tuple is a simple value, all of its entries are
-///    serialized as unnamed arguments.
-/// 3. If *any* entry is a compound value (a list, map, or typed struct), *all*
-///    entries in the list or tuple are represented as (unnamed) children of the
-///    list instead of unnamed arguments.
-///
-/// ## Maps (dictionaries)
-///
-/// 1. The map itself is always a full node, because it is compound.
-/// 2. All keys in the map must be serializable as strings. If any key is not a string,
-///    this returns an error.
-/// 3. If all values in the map are simple values, all of its entries are
-///    serialized as named arguments, where the name of each argument is the
-///    key.
-/// 4. If *any* value is a compound value (a list, map, or typed struct), *all*
-///    entries in the map are represented as (named) children of the map
-/// 5. The order of map entries is always preserved.
-///
-/// ## Structs with named fields
-///
-/// Structs are like maps, but they differ in the following ways:
-///
-/// 1. All keys are guaranteed to be strings.
-/// 2. Fields of the struct are serialized as a mix of named arguments and named
-///    children, depending on the type of the field, which implies that the
-///    natural ordering between fields is not preserved, but it results in a
-///    more compact document.
-///
-/// ## Other
-///
-/// 1. `None` and the unit type `()` are serialized as a null value. When
-///    represented as a child node, it is represented by the empty node.
-/// 3. Empty enum variants (unit variants) are serialized as a string with the
-///    name of the variant.
-/// 4. Newtype structs (`struct Foo(Bar)`) are serialized as the inner value of
-///    the struct. The `type` field is *not* set.
-/// 5. Newtype enum variants (`enum Foo { Bar(Baz) }`) are serialized as the
-///    inner value of the variant. The `type` field is set to the name of the
-///    variant.
-/// 6. Tuple structs are serialized as normal tuples. The `type` field is *not*
-///    set.
-/// 7. Tuple enum variants are serialized as lists, but the `type` field is set
-///    to the name of the variant.
-/// 8. Struct enum variants are serialized as structs, but the `type` field is
-///    set to the name of the variant.
+/// Serialize into a [`Builder`](crate::Builder), which can be modified further.
 ///
 /// # Errors
 ///
 /// If the value cannot be serialized, this returns an error.
+#[cfg(feature = "alloc")]
 pub fn to_builder<'a, T: serde::Serialize>(value: &T) -> Result<crate::Builder<'a>, Error> {
     let mut builder = crate::Builder::new();
     value.serialize(builder.root_mut())?;
     Ok(builder)
+}
+
+/// Serialize into a builder [`Node`](crate::builder::Node), which can be
+/// modified further or inserted into another builder.
+///
+/// # Errors
+///
+/// If the value cannot be serialized, this returns an error.
+#[cfg(feature = "alloc")]
+pub fn to_builder_node<'a, T: serde::Serialize>(
+    value: &T,
+) -> Result<crate::builder::Node<'a>, Error> {
+    let mut root = crate::builder::Node::empty();
+    value.serialize(&mut root)?;
+    Ok(root)
 }
 
 /// Serialize a value to a linear, immutable
@@ -81,12 +105,29 @@ pub fn to_builder<'a, T: serde::Serialize>(value: &T) -> Result<crate::Builder<'
 /// # Errors
 ///
 /// If the value cannot be serialized, this returns an error.
+#[cfg(feature = "alloc")]
 pub fn to_document<T: serde::Serialize>(value: &T) -> Result<crate::DocumentBuffer, Error> {
     to_builder(value).map(|builder| builder.build())
 }
 
 /// Deserialize a [`Builder`](crate::Builder) into a value of type `T`,
-/// borrowing strings and binary data from the document.
+/// borrowing strings and binary data from the builder.
+///
+/// See [the module documentation](crate::serde) for the conventions and
+/// assumptions of the structure of serialized data.
+///
+/// # Errors
+///
+/// If the document cannot be deserialized into `T`, this returns an error.
+#[cfg(feature = "alloc")]
+pub fn from_builder<'a, T: serde::Deserialize<'a>>(
+    builder: &'a crate::Builder<'_>,
+) -> Result<T, Error> {
+    from_builder_node(builder.root())
+}
+
+/// Deserialize a builder [`Node`](crate::builder::Node) into a value of type
+/// `T`, borrowing strings and binary data from the document.
 ///
 /// See [`to_builder`] for the conventions and assumptions of the structure of
 /// serialized data.
@@ -94,10 +135,11 @@ pub fn to_document<T: serde::Serialize>(value: &T) -> Result<crate::DocumentBuff
 /// # Errors
 ///
 /// If the document cannot be deserialized into `T`, this returns an error.
-pub fn from_builder<'a, T: serde::Deserialize<'a>>(
-    builder: &'a crate::Builder,
+#[cfg(feature = "alloc")]
+pub fn from_builder_node<'a, T: serde::Deserialize<'a>>(
+    node: &'a crate::builder::Node<'_>,
 ) -> Result<T, Error> {
-    serde::de::Deserialize::deserialize(de::DeNode(builder.root()))
+    serde::de::Deserialize::deserialize(de::DeNode(node))
 }
 
 /// Deserialize a [`Document`](crate::Document) into a value of type `T`,
@@ -112,7 +154,19 @@ pub fn from_builder<'a, T: serde::Deserialize<'a>>(
 pub fn from_document<'a, T: serde::Deserialize<'a>>(
     document: &'a crate::Document,
 ) -> Result<T, Error> {
-    serde::de::Deserialize::deserialize(de::DeNode(document.root()))
+    from_document_node(document.root())
+}
+
+/// Deserialize a [`Node`](crate::Node) into a value of type `T`, borrowing
+/// strings and binary data from the node.
+///
+/// # Errors
+///
+/// If the document cannot be deserialized into `T`, this returns an error.
+pub fn from_document_node<'a, T: serde::Deserialize<'a>>(
+    node: crate::Node<'a>,
+) -> Result<T, Error> {
+    serde::de::Deserialize::deserialize(de::DeNode(node))
 }
 
 impl<'de> serde::de::IntoDeserializer<'de, Error> for crate::Node<'de> {
@@ -124,6 +178,7 @@ impl<'de> serde::de::IntoDeserializer<'de, Error> for crate::Node<'de> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'de> serde::de::IntoDeserializer<'de, Error> for &'de crate::builder::Node<'de> {
     type Deserializer = de::DeNode<Self>;
 
@@ -134,8 +189,8 @@ impl<'de> serde::de::IntoDeserializer<'de, Error> for &'de crate::builder::Node<
 }
 
 #[cfg(test)]
+#[cfg(feature = "alloc")]
 mod tests {
-    extern crate std;
     use alloc::{
         borrow::{Cow, ToOwned as _},
         boxed::Box,
@@ -169,7 +224,7 @@ mod tests {
             impl serde::de::Visitor<'_> for Visitor {
                 type Value = Bytes;
 
-                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
                     write!(formatter, "expected binary")
                 }
 
@@ -198,6 +253,8 @@ mod tests {
         UnitVariant,
         NewTypeValue(i32),
         Nested(Box<Enum>),
+        Struct { int: i32, nested: Option<Box<Enum>> },
+        Tuple(i32, String),
     }
 
     #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
@@ -232,6 +289,48 @@ mod tests {
         );
         let de = from_document::<Enum>(&doc).unwrap();
         assert_eq!(de, Enum::NewTypeValue(123));
+    }
+
+    #[test]
+    fn struct_variant() {
+        let doc = to_document(&Enum::Struct {
+            int: 123,
+            nested: None,
+        })
+        .unwrap();
+        assert_eq!(doc.as_bytes().len(), 151);
+        assert_eq!(
+            doc.root(),
+            builder::Node::from_entries([
+                ("int", builder::Value::Int(123)),
+                ("nested", builder::Value::Null),
+            ])
+            .with_ty("Struct")
+        );
+        let de = from_document::<Enum>(&doc).unwrap();
+        assert_eq!(
+            de,
+            Enum::Struct {
+                int: 123,
+                nested: None
+            }
+        );
+    }
+
+    #[test]
+    fn tuple_variant() {
+        let doc = to_document(&Enum::Tuple(123, "hello".to_string())).unwrap();
+        assert_eq!(doc.as_bytes().len(), 146);
+        assert_eq!(
+            doc.root(),
+            builder::Node::from_entries([
+                builder::Value::Int(123),
+                builder::Value::String("hello".into()),
+            ])
+            .with_ty("Tuple")
+        );
+        let de = from_document::<Enum>(&doc).unwrap();
+        assert_eq!(de, Enum::Tuple(123, "hello".to_string()));
     }
 
     #[test]
@@ -639,7 +738,7 @@ mod tests {
             }
         );
         let map1 = BTreeMap::deserialize(doc.root().into_deserializer()).unwrap();
-        let map2 = BTreeMap::deserialize(builder.root().into_deserializer()).unwrap();
+        let map2: BTreeMap<Key, i32> = from_builder(&builder).unwrap();
         assert_eq!(map1, map);
         assert_eq!(map2, map);
     }
@@ -683,8 +782,65 @@ mod tests {
             }
         );
         let map1 = BTreeMap::deserialize(doc.root().into_deserializer()).unwrap();
-        let map2 = BTreeMap::deserialize(builder.root().into_deserializer()).unwrap();
+        let map2: BTreeMap<Key, i32> = from_builder(&builder).unwrap();
         assert_eq!(map1, map);
         assert_eq!(map2, map);
+    }
+
+    #[test]
+    fn tuple_1_arg() {
+        let foo = &(1i32,);
+        let builder = to_builder(&foo).unwrap();
+        let doc = builder.build();
+        assert_eq!(doc.root(), builder.root());
+        assert_eq!(
+            doc.root(),
+            builder::Node::from_values([builder::Value::Int(1)])
+        );
+        let bar: (i32,) = Deserialize::deserialize(doc.root().into_deserializer()).unwrap();
+        assert_eq!(*foo, bar);
+    }
+
+    #[test]
+    fn tuple_1_child() {
+        let foo = &(Struct {
+            string: String::from("hello"),
+            int: 123,
+            enum_: Enum::UnitVariant,
+            vec: vec![1, 2],
+        },);
+        let builder = to_builder(&foo).unwrap();
+        let doc = builder.build();
+        assert_eq!(doc.root(), builder.root());
+        assert_eq!(
+            doc.root(),
+            builder::Node::from_entries([builder::Node::from_entries([
+                ("string", builder::Value::String("hello".into())),
+                ("int", builder::Value::Int(123)),
+                ("enum_", builder::Value::String("UnitVariant".into())),
+            ])
+            .with_entry(("vec", vec![1i32, 2]))])
+        );
+        let bar: (Struct,) = Deserialize::deserialize(doc.root().into_deserializer()).unwrap();
+        assert_eq!(*foo, bar);
+    }
+
+    #[test]
+    fn tuple_3_primitives() {
+        let foo = (None::<i32>, String::from("hello"), 123i32);
+        let builder = to_builder(&foo).unwrap();
+        let doc = builder.build();
+        assert_eq!(doc.root(), builder.root());
+        assert_eq!(
+            doc.root(),
+            builder::Node::from_entries([
+                builder::Value::Null,
+                builder::Value::String("hello".into()),
+                builder::Value::Int(123),
+            ])
+        );
+        let bar: (Option<i32>, String, i32) =
+            Deserialize::deserialize(doc.root().into_deserializer()).unwrap();
+        assert_eq!(foo, bar);
     }
 }

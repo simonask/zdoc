@@ -143,17 +143,39 @@ impl<'a> Node<'a> {
         }
     }
 
-    pub fn from_values(args: impl IntoIterator<Item = Value<'a>>) -> Self {
-        let args = args.into_iter().map(Arg::from).collect::<Vec<_>>();
+    #[must_use]
+    pub fn from_values(args: impl IntoIterator<Item: Into<Value<'a>>>) -> Self {
+        let args = args
+            .into_iter()
+            .map(Into::into)
+            .map(Arg::from)
+            .collect::<Vec<_>>();
         let mut node = Self::empty();
         node.set_args(args);
         node
     }
 
-    pub fn from_args(args: impl IntoIterator<Item = Arg<'a>>) -> Self {
+    #[must_use]
+    pub fn from_args(args: impl IntoIterator<Item: Into<Arg<'a>>>) -> Self {
         let args = args.into_iter().collect::<Vec<_>>();
         let mut node = Self::empty();
         node.set_args(args);
+        node
+    }
+
+    #[must_use]
+    pub fn from_children(children: impl IntoIterator<Item: Into<Node<'a>>>) -> Self {
+        let children = children.into_iter().map(Into::into).collect::<Vec<_>>();
+        let mut node = Self::empty();
+        node.set_children(children);
+        node
+    }
+
+    pub fn from_entries(entries: impl IntoIterator<Item: IntoEntry<'a>>) -> Self {
+        let mut node = Self::empty();
+        for entry in entries {
+            node.push(entry);
+        }
         node
     }
 
@@ -272,6 +294,12 @@ impl<'a> Node<'a> {
         self
     }
 
+    #[must_use]
+    pub fn with_entry(mut self, entry: impl IntoEntry<'a>) -> Self {
+        self.push(entry);
+        self
+    }
+
     /// Push an unnamed child, treating this node as a list.
     ///
     /// This maintains the order of existing arguments and children, which means
@@ -343,6 +371,12 @@ impl<'a> Node<'a> {
         self
     }
 
+    #[must_use]
+    pub fn with_ty(mut self, ty: impl Into<Cow<'a, str>>) -> Self {
+        self.ty = ty.into();
+        self
+    }
+
     pub fn set_children(&mut self, children: impl IntoIterator<Item = Node<'a>>) -> &mut Self {
         // Note: When passed a `Vec`, this is guaranteed to not reallocate.
         self.children = children.into_iter().collect();
@@ -366,8 +400,8 @@ impl<'a> Node<'a> {
         self.children.to_mut()
     }
 
-    pub fn set_args(&mut self, args: impl IntoIterator<Item = Arg<'a>>) -> &mut Self {
-        self.args = args.into_iter().collect();
+    pub fn set_args(&mut self, args: impl IntoIterator<Item: Into<Arg<'a>>>) -> &mut Self {
+        self.args = args.into_iter().map(Into::into).collect();
         self
     }
 
@@ -448,6 +482,16 @@ impl<'a> Arg<'a> {
             }]),
             name: self.name.unwrap_or_default(),
             ty: Cow::Borrowed(""),
+        }
+    }
+}
+
+impl<'a> From<(&'a str, Value<'a>)> for Arg<'a> {
+    #[inline]
+    fn from(value: (&'a str, Value<'a>)) -> Self {
+        Arg {
+            name: Some(Cow::Borrowed(value.0)),
+            value: value.1,
         }
     }
 }
@@ -724,6 +768,32 @@ impl<'a, F: FnOnce(&mut Node<'a>)> IntoEntry<'a> for F {
         let mut child = Node::empty();
         self(&mut child);
         Entry::Child(child)
+    }
+}
+
+impl<'a> IntoEntry<'a> for (&'a str, Value<'a>) {
+    fn into_entry(self) -> Entry<'a> {
+        let (name, value) = self;
+        Entry::Arg(Arg {
+            name: if name.is_empty() {
+                None
+            } else {
+                Some(Cow::Borrowed(name))
+            },
+            value,
+        })
+    }
+}
+
+impl<'a, T: IntoEntry<'a>> IntoEntry<'a> for (&'a str, Vec<T>) {
+    fn into_entry(self) -> Entry<'a> {
+        let (name, values) = self;
+        let mut node = Node::empty();
+        for value in values {
+            node.push(value.into_entry());
+        }
+        node.set_name(name);
+        Entry::Child(node)
     }
 }
 
