@@ -371,6 +371,12 @@ impl<'a> Node<'a> {
         self
     }
 
+    #[must_use]
+    pub fn with_ty(mut self, ty: impl Into<Cow<'a, str>>) -> Self {
+        self.ty = ty.into();
+        self
+    }
+
     pub fn set_children(&mut self, children: impl IntoIterator<Item = Node<'a>>) -> &mut Self {
         // Note: When passed a `Vec`, this is guaranteed to not reallocate.
         self.children = children.into_iter().collect();

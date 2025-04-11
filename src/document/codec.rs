@@ -106,7 +106,14 @@ pub static DEFAULT_HEADER: Header = Header {
     reserved3: 0,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
+impl Default for Header {
+    #[inline]
+    fn default() -> Self {
+        DEFAULT_HEADER
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
 pub struct Node {
     pub args: ArgRange,
@@ -137,7 +144,7 @@ impl Node {
     };
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
 pub struct Arg {
     pub name: StringRange,
@@ -162,7 +169,7 @@ impl Arg {
     };
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
 pub struct Value {
     pub ty: u32,
@@ -187,7 +194,7 @@ const _: () = {
     assert!(offset_of!(Value, payload) == 4, "unexpected offset");
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
 pub struct ArgRange {
     /// Start index of the value range within the `values` section of the file
@@ -201,7 +208,17 @@ impl ArgRange {
     pub const EMPTY: Self = Self { start: 0, len: 0 };
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
+impl From<core::ops::Range<u32>> for ArgRange {
+    #[inline]
+    fn from(value: core::ops::Range<u32>) -> Self {
+        ArgRange {
+            start: value.start,
+            len: value.end - value.start,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
 pub struct NodeRange {
     /// Start index of the node range within the `nodes` section of the file
@@ -215,11 +232,21 @@ impl NodeRange {
     pub const EMPTY: Self = Self { start: 0, len: 0 };
 }
 
+impl From<core::ops::Range<u32>> for NodeRange {
+    #[inline]
+    fn from(value: core::ops::Range<u32>) -> Self {
+        NodeRange {
+            start: value.start,
+            len: value.end - value.start,
+        }
+    }
+}
+
 /// Byte range containing a string within a document.
 ///
 /// In a valid document, the start and len are guaranteed to fall on valid UTF-8
 /// char boundaries.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
 pub struct StringRange {
     /// Start of the string from `header.strings_offset`.
@@ -231,7 +258,17 @@ impl StringRange {
     pub const EMPTY: Self = Self { start: 0, len: 0 };
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
+impl From<core::ops::Range<u32>> for StringRange {
+    #[inline]
+    fn from(value: core::ops::Range<u32>) -> Self {
+        StringRange {
+            start: value.start,
+            len: value.end - value.start,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
 pub struct BinaryRange {
     pub start: u32,
@@ -242,9 +279,20 @@ impl BinaryRange {
     pub const EMPTY: Self = Self { start: 0, len: 0 };
 }
 
-#[derive(Clone, Copy, Debug)]
+impl From<core::ops::Range<u32>> for BinaryRange {
+    #[inline]
+    fn from(value: core::ops::Range<u32>) -> Self {
+        BinaryRange {
+            start: value.start,
+            len: value.end - value.start,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(u8)]
 pub enum RawValue {
+    #[default]
     Null = 0,
     Bool(bool) = 1,
     Int(i64) = 2,
