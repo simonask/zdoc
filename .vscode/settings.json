@@ -8,6 +8,7 @@
         "yaml",
         "xml",
         "bincode",
-        "rkyv"
+        "rkyv",
+        "facet"
     ],
 }
