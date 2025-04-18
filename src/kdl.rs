@@ -63,7 +63,7 @@ impl<'a> From<&'a KdlNode> for Node<'a> {
         node.set_ty(value.ty().and_then(|ty| ty.repr()).unwrap_or(""));
 
         for entry in value.entries() {
-            node.push_arg(entry.into());
+            node.push_arg(entry);
         }
 
         if let Some(children) = value.children() {

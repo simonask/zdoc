@@ -16,6 +16,13 @@ serde = { version = "1.0.219", optional = true }
 serde_json = { version = "1.0.140", optional = true }
 serde_yaml = { version = "0.9.34", optional = true }
 thiserror = "2.0.12"
+facet-reflect = { version = "0.6.2", optional = true, default-features = false }
+facet-core = { version = "0.5.3", optional = true, default-features = false }
+
+[dev-dependencies]
+facet-derive = "0.1.20"
+facet = { version = "0.2.0", features = ["reflect"] }
+serde = { version = "1.0.219", features = ["derive"] }
 
 [features]
 default = ["alloc", "builder"]
@@ -29,9 +36,7 @@ xml = ["dep:quick-xml", "alloc"]
 bincode = ["dep:bincode"]
 hashbrown = ["dep:hashbrown"]
 rkyv = ["dep:rkyv"]
-
-[dev-dependencies]
-serde = { version = "1.0.219", features = ["derive"] }
+facet = ["dep:facet-core", "dep:facet-reflect"]
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
