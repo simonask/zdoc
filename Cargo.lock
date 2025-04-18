@@ -526,7 +526,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zdocument"
+name = "zdoc"
 version = "0.1.0"
 dependencies = [
  "bincode",

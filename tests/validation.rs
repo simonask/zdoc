@@ -1,5 +1,5 @@
 use bytemuck::{bytes_of, cast_slice, cast_slice_mut};
-use zdocument::{
+use zdoc::{
     Document, ValidationError, ValidationErrorKind,
     codec::{ArgRange, DEFAULT_HEADER, Header, Node, NodeRange, StringRange},
 };

@@ -1,7 +1,7 @@
 #![cfg(feature = "serde")]
 
 use bytemuck::{bytes_of, offset_of};
-use zdocument::{Document, codec, serde::from_document};
+use zdoc::{Document, codec, serde::from_document};
 
 #[derive(Clone, Copy)]
 #[repr(C)]

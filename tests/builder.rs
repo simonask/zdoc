@@ -1,6 +1,6 @@
 #![cfg(feature = "alloc")]
 
-use zdocument::{ValueRef, builder::Builder, codec};
+use zdoc::{ValueRef, builder::Builder, codec};
 
 #[test]
 fn empty() {
