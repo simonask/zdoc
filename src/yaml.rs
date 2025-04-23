@@ -67,8 +67,33 @@ impl Default for YamlSettings<'_> {
 /// If the document cannot be represented as YAML, or if any fields in the
 /// document conflict with the default YAML settings, this returns an error.
 #[inline]
-pub fn document_to_yaml(doc: &Document) -> Result<serde_yaml::Value> {
+pub fn document_to_yaml_value(doc: &Document) -> Result<serde_yaml::Value> {
+    document_to_yaml_value_with_settings(doc, &YamlSettings::default())
+}
+
+/// Convert [`Document`] to YAML.
+///
+/// # Errors
+///
+/// If the document cannot be represented as YAML, or if any fields in the
+/// document conflict with the default YAML settings, this returns an error.
+#[inline]
+pub fn document_to_yaml(doc: &Document) -> Result<alloc::string::String> {
     document_to_yaml_with_settings(doc, &YamlSettings::default())
+}
+
+/// Convert [`Document`] to YAML.
+///
+/// # Errors
+///
+/// If the document cannot be represented as YAML, or if any fields in the
+/// document conflict with the YAML settings, this returns an error.
+#[inline]
+pub fn document_to_yaml_value_with_settings(
+    doc: &Document,
+    settings: &YamlSettings,
+) -> Result<serde_yaml::Value> {
+    settings.node_to_yaml(&doc.root())
 }
 
 /// Convert [`Document`] to YAML.
@@ -81,8 +106,9 @@ pub fn document_to_yaml(doc: &Document) -> Result<serde_yaml::Value> {
 pub fn document_to_yaml_with_settings(
     doc: &Document,
     settings: &YamlSettings,
-) -> Result<serde_yaml::Value> {
-    settings.node_to_yaml(&doc.root())
+) -> Result<alloc::string::String> {
+    let value = settings.node_to_yaml(&doc.root())?;
+    serde_yaml::to_string(&value).map_err(Error::custom)
 }
 
 /// Convert YAML to [`Document`].
@@ -90,8 +116,22 @@ pub fn document_to_yaml_with_settings(
 /// This is an infallible conversion.
 #[inline]
 #[must_use]
-pub fn document_from_yaml(value: &serde_yaml::Value) -> DocumentBuffer {
-    document_from_yaml_with_settings(value, &YamlSettings::default())
+pub fn document_from_yaml_value(value: &serde_yaml::Value) -> DocumentBuffer {
+    document_from_yaml_value_with_settings(value, &YamlSettings::default())
+}
+
+/// Convert YAML to [`Document`].
+///
+/// # Errors
+///
+/// If `yaml` is not valid YAML syntax, this returns an error.
+#[inline]
+pub fn document_from_yaml(yaml: &str) -> Result<DocumentBuffer> {
+    let yaml = serde_yaml::from_str(yaml).map_err(Error::custom)?;
+    Ok(document_from_yaml_value_with_settings(
+        &yaml,
+        &YamlSettings::default(),
+    ))
 }
 
 /// Convert YAML to [`Document`].
@@ -99,11 +139,25 @@ pub fn document_from_yaml(value: &serde_yaml::Value) -> DocumentBuffer {
 /// This is an infallible conversion.
 #[inline]
 #[must_use]
-pub fn document_from_yaml_with_settings(
+pub fn document_from_yaml_value_with_settings(
     value: &serde_yaml::Value,
     settings: &YamlSettings,
 ) -> DocumentBuffer {
-    builder_from_yaml_with_settings(value, settings).build()
+    builder_from_yaml_value_with_settings(value, settings).build()
+}
+
+/// Convert YAML to [`Document`].
+///
+/// # Errors
+///
+/// If `yaml` is not valid YAML syntax, this returns an error.
+#[inline]
+pub fn document_from_yaml_with_settings(
+    yaml: &str,
+    settings: &YamlSettings,
+) -> Result<DocumentBuffer> {
+    let yaml = serde_yaml::from_str(yaml).map_err(Error::custom)?;
+    Ok(document_from_yaml_value_with_settings(&yaml, settings))
 }
 
 /// Convert YAML to [`Builder`], which can be modified further.
@@ -114,13 +168,13 @@ pub fn document_from_yaml_with_settings(
 /// This is an infallible conversion.
 #[must_use]
 #[inline]
-pub fn builder_from_yaml(value: &serde_yaml::Value) -> Builder<'_> {
-    builder_from_yaml_with_settings(value, &YamlSettings::default())
+pub fn builder_from_yaml_value(value: &serde_yaml::Value) -> Builder<'_> {
+    builder_from_yaml_value_with_settings(value, &YamlSettings::default())
 }
 
 #[must_use]
 #[inline]
-pub fn builder_from_yaml_with_settings<'a>(
+pub fn builder_from_yaml_value_with_settings<'a>(
     value: &'a serde_yaml::Value,
     settings: &YamlSettings,
 ) -> Builder<'a> {
@@ -329,11 +383,11 @@ mod tests {
         });
         let doc = builder.build();
 
-        let yaml_value = document_to_yaml(&doc).unwrap();
+        let yaml_value = document_to_yaml_value(&doc).unwrap();
         let yaml = serde_yaml::to_string(&yaml_value).unwrap();
         assert_eq!(yaml, "!Root\nkey: value\n$items:\n- child\n- 123\n");
 
-        let doc = document_from_yaml(&yaml_value);
+        let doc = document_from_yaml_value(&yaml_value);
         let root = doc.root();
         assert_eq!(root.ty(), Some("Root"));
         assert_eq!(root.args().len(), 3);

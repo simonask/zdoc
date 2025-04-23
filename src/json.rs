@@ -24,7 +24,7 @@
 
 use alloc::{
     borrow::{Cow, ToOwned as _},
-    string::String,
+    string::{String, ToString},
     vec::Vec,
 };
 
@@ -72,8 +72,34 @@ impl Default for JsonSettings<'_> {
 /// If the document cannot be represented as JSON, or if any fields in the
 /// document conflict with the default JSON settings, this returns an error.
 #[inline]
-pub fn document_to_json(doc: &Document) -> Result<serde_json::Value> {
-    document_to_json_with_settings(doc, &JsonSettings::default())
+pub fn document_to_json_value(doc: &Document) -> Result<serde_json::Value> {
+    document_to_json_value_with_settings(doc, &JsonSettings::default())
+}
+
+/// Convert [`Document`] to JSON.
+///
+/// # Errors
+///
+/// If the document cannot be represented as JSON, or if any fields in the
+/// document conflict with the default JSON settings, this returns an error.
+#[inline]
+pub fn document_to_json(doc: &Document) -> Result<alloc::string::String> {
+    let value = document_to_json_value(doc)?;
+    Ok(value.to_string())
+}
+
+/// Convert [`Document`] to JSON.
+///
+/// # Errors
+///
+/// If the document cannot be represented as JSON, or if any fields in the
+/// document conflict with the JSON settings, this returns an error.
+#[inline]
+pub fn document_to_json_value_with_settings(
+    doc: &Document,
+    settings: &JsonSettings,
+) -> Result<serde_json::Value> {
+    settings.node_to_json(&doc.root())
 }
 
 /// Convert [`Document`] to JSON.
@@ -86,8 +112,10 @@ pub fn document_to_json(doc: &Document) -> Result<serde_json::Value> {
 pub fn document_to_json_with_settings(
     doc: &Document,
     settings: &JsonSettings,
-) -> Result<serde_json::Value> {
-    settings.node_to_json(&doc.root())
+) -> Result<alloc::string::String> {
+    settings
+        .node_to_json(&doc.root())
+        .map(|value| value.to_string())
 }
 
 /// Convert JSON to [`Document`].
@@ -95,8 +123,18 @@ pub fn document_to_json_with_settings(
 /// This is an infallible conversion.
 #[inline]
 #[must_use]
-pub fn document_from_json(value: &serde_json::Value) -> DocumentBuffer {
-    document_from_json_with_settings(value, &JsonSettings::default())
+pub fn document_from_json_value(value: &serde_json::Value) -> DocumentBuffer {
+    document_from_json_value_with_settings(value, &JsonSettings::default())
+}
+
+/// Convert JSON to [`Document`].
+///
+/// # Errors
+///
+/// If the string is not a valid JSON document, this returns an error.
+#[inline]
+pub fn document_from_json(json: &str) -> Result<DocumentBuffer> {
+    document_from_json_with_settings(json, &JsonSettings::default())
 }
 
 /// Convert JSON to [`Document`].
@@ -104,11 +142,25 @@ pub fn document_from_json(value: &serde_json::Value) -> DocumentBuffer {
 /// This is an infallible conversion.
 #[inline]
 #[must_use]
-pub fn document_from_json_with_settings(
+pub fn document_from_json_value_with_settings(
     value: &serde_json::Value,
     settings: &JsonSettings,
 ) -> DocumentBuffer {
-    builder_from_json_with_settings(value, settings).build()
+    builder_from_json_value_with_settings(value, settings).build()
+}
+
+/// Convert JSON to [`Document`].
+///
+/// # Errors
+///
+/// If the string is not a valid JSON document, this returns an error.
+#[inline]
+pub fn document_from_json_with_settings(
+    json: &str,
+    settings: &JsonSettings,
+) -> Result<DocumentBuffer> {
+    let json = serde_json::from_str(json).map_err(Error::custom)?;
+    Ok(builder_from_json_value_with_settings(&json, settings).build())
 }
 
 /// Convert JSON to [`Builder`], which can be modified further.
@@ -119,13 +171,13 @@ pub fn document_from_json_with_settings(
 /// This is an infallible conversion.
 #[must_use]
 #[inline]
-pub fn builder_from_json(value: &serde_json::Value) -> Builder<'_> {
-    builder_from_json_with_settings(value, &JsonSettings::default())
+pub fn builder_from_json_value(value: &serde_json::Value) -> Builder<'_> {
+    builder_from_json_value_with_settings(value, &JsonSettings::default())
 }
 
 #[must_use]
 #[inline]
-pub fn builder_from_json_with_settings<'a>(
+pub fn builder_from_json_value_with_settings<'a>(
     value: &'a serde_json::Value,
     settings: &JsonSettings,
 ) -> Builder<'a> {
@@ -341,14 +393,14 @@ mod tests {
         });
         let doc = builder.build();
 
-        let json_value = document_to_json(&doc).unwrap();
+        let json_value = document_to_json_value(&doc).unwrap();
         let json = json_value.to_string();
         assert_eq!(
             json,
             r#"{"$items":["child",123],"$type":"Root","key":"value"}"#
         );
 
-        let doc = document_from_json(&json_value);
+        let doc = document_from_json_value(&json_value);
         let root = doc.root();
         assert_eq!(root.ty(), Some("Root"));
         assert_eq!(root.args().len(), 3);

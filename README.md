@@ -13,16 +13,17 @@ memcpy into WASM memory, and WIT bindings are available.
 The feature set is a superset of the [KDL](https://kdl.dev/) document language,
 and KDL documents can be represented without data loss.
 
-The following formats can be losslessly[^comments] converted to/from
+The following document formats can be losslessly[^comments] converted to/from
 `zdocument::Document`:
 
-|      | `Into<Document>` | `From<Document` |
-| ---- | ---------------- | --------------- |
-| XML  | ✅[^xml]         | ✅             |
-| KDL  | ✅[^comments]    | ✅             |
-| JSON | ✅[^comments]    | ✅[^dupes]     |
-| YAML | ✅[^comments]    | ✅[^dupes]     |
-| TOML | ✅[^comments]    | ✅[^dupes]     |
+|      | `Into<Document>` | `From<Document` | Node types           | Binary data |
+| ---- | ---------------- | --------------- | -------------------- | ----- |
+| zdoc | ✅               | ✅             | ✅                   | ✅    |
+| KDL  | ✅[^comments]    | ✅             | ✅                   | ❌    |
+| XML  | ✅[^xml]         | ✅             | ✅ (tag names)       | ❌    |
+| JSON | ✅[^comments]    | ✅[^dupes]     | ✅ (`"$type"` field) | ❌   |
+| YAML | ✅[^comments]    | ✅[^dupes]     | ✅ (YAML tags)       | ❌   |
+| TOML | ✅[^comments]    | ✅[^dupes]     | ✅ (`"$type"` field) | ❌   |
 
 Additionally, `zdocument::Document` can be serialized either as
 non-human-readable flat data or into any structured format.
