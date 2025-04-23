@@ -35,6 +35,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitflags"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c8214115b7bf84099f1309324e63141d4c5d7cc26862f97a0a857dbefe165bd"
+
+[[package]]
 name = "bytecheck"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -96,6 +102,66 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
+name = "facet"
+version = "0.9.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d463cdbfd164edf1bba30df23cf639dc6fbd000a03311f5f8dcfeff08299eb03"
+dependencies = [
+ "facet-core",
+ "facet-derive",
+ "facet-reflect",
+]
+
+[[package]]
+name = "facet-core"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f5905953877795d96aef172f2206950339e350f9862c0b1c0d15b781c7a97c0"
+dependencies = [
+ "bitflags",
+ "impls",
+]
+
+[[package]]
+name = "facet-derive"
+version = "0.9.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1e70487e8dfa130f15b682d12a5a72ea05d49be05fdd3d5a2515b7bac6b707a"
+dependencies = [
+ "facet-core",
+ "facet-derive-emit",
+]
+
+[[package]]
+name = "facet-derive-emit"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef4e65d115e0ba547d9ff23808dce39b9147c89608c45494a3054d48cec2dae4"
+dependencies = [
+ "facet-derive-parse",
+]
+
+[[package]]
+name = "facet-derive-parse"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a4a06efa3e0b08f2aff06def429a0a06b304379167be9491e24bad0f282c19d"
+dependencies = [
+ "unsynn",
+]
+
+[[package]]
+name = "facet-reflect"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "897aee2fc70e2a538ca9dcf0e31d6523995ab3b2edaba8e23175966fd5b7ffe5"
+dependencies = [
+ "bitflags",
+ "facet-core",
+ "owo-colors",
+]
+
+[[package]]
 name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -113,10 +179,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "indexmap"
-version = "2.8.0"
+name = "impls"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3954d50fe15b02142bf25d3b8bdadb634ec3948f103d04ffe3031bc8fe9d7058"
+checksum = "7a46645bbd70538861a90d0f26c31537cdf1e44aae99a794fb75a664b70951bc"
+
+[[package]]
+name = "indexmap"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
  "hashbrown",
@@ -188,6 +260,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "mutants"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 
 [[package]]
 name = "num"
@@ -263,10 +341,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "proc-macro2"
-version = "1.0.94"
+name = "owo-colors"
+version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a31971752e70b8b2686d7e46ec17fb38dad4051d94024c88df49b667caea9c84"
+checksum = "1036865bb9422d3300cf723f657c2851d0e9ab12567854b1f4eba3d77decf564"
+
+[[package]]
+name = "proc-macro2"
+version = "1.0.95"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
 dependencies = [
  "unicode-ident",
 ]
@@ -409,6 +493,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "shadow_counted"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65da48d447333cebe1aadbdd3662f3ba56e76e67f53bc46f3dd5f67c74629d6b"
+
+[[package]]
 name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -499,6 +589,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
+name = "unsynn"
+version = "0.0.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14013db4ac11f92d4df4b56edb431eab9c1d9f7aee4791f3205b6a1119b83f54"
+dependencies = [
+ "mutants",
+ "proc-macro2",
+ "shadow_counted",
+]
+
+[[package]]
 name = "unty"
 version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -531,6 +632,10 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bytemuck",
+ "facet",
+ "facet-core",
+ "facet-derive",
+ "facet-reflect",
  "hashbrown",
  "kdl",
  "quick-xml",

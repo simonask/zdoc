@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
 #![cfg_attr(coverage, feature(coverage_attribute))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -13,6 +14,8 @@ mod compare;
 pub(crate) mod debug;
 mod document;
 mod error;
+#[cfg(feature = "facet")]
+pub mod facet;
 #[cfg(feature = "json")]
 pub mod json;
 #[cfg(feature = "kdl")]
