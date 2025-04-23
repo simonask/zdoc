@@ -103,9 +103,9 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "facet"
-version = "0.2.0"
+version = "0.9.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ec692e89973dc1759e131424a7e8f4677d46d953219ef631a784a270f58dde6"
+checksum = "d463cdbfd164edf1bba30df23cf639dc6fbd000a03311f5f8dcfeff08299eb03"
 dependencies = [
  "facet-core",
  "facet-derive",
@@ -114,9 +114,9 @@ dependencies = [
 
 [[package]]
 name = "facet-core"
-version = "0.5.3"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49950131d69ca20f4f3c8872e9c57814551337cc9fbc521e602ab43f468e0365"
+checksum = "4f5905953877795d96aef172f2206950339e350f9862c0b1c0d15b781c7a97c0"
 dependencies = [
  "bitflags",
  "impls",
@@ -124,21 +124,41 @@ dependencies = [
 
 [[package]]
 name = "facet-derive"
-version = "0.1.20"
+version = "0.9.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b1a35cc325737c87a77820b6cceed0f471bdd594a8429822b155a70ad2326f6"
+checksum = "c1e70487e8dfa130f15b682d12a5a72ea05d49be05fdd3d5a2515b7bac6b707a"
 dependencies = [
  "facet-core",
+ "facet-derive-emit",
+]
+
+[[package]]
+name = "facet-derive-emit"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef4e65d115e0ba547d9ff23808dce39b9147c89608c45494a3054d48cec2dae4"
+dependencies = [
+ "facet-derive-parse",
+]
+
+[[package]]
+name = "facet-derive-parse"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a4a06efa3e0b08f2aff06def429a0a06b304379167be9491e24bad0f282c19d"
+dependencies = [
  "unsynn",
 ]
 
 [[package]]
 name = "facet-reflect"
-version = "0.6.2"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8df7486371a6ae68e203bf3958a374ecd6f277a5e8065811dfeeba8e259bf21c"
+checksum = "897aee2fc70e2a538ca9dcf0e31d6523995ab3b2edaba8e23175966fd5b7ffe5"
 dependencies = [
+ "bitflags",
  "facet-core",
+ "owo-colors",
 ]
 
 [[package]]
@@ -319,6 +339,12 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "owo-colors"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1036865bb9422d3300cf723f657c2851d0e9ab12567854b1f4eba3d77decf564"
 
 [[package]]
 name = "proc-macro2"

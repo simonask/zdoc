@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'zdocument'",
+            "name": "Debug unit tests in library 'zdoc'",
             "sourceLanguages": [
                 "rust"
             ],
@@ -16,10 +16,11 @@
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=zdocument"
+                    "--package=zdoc",
+                    "--all-features"
                 ],
                 "filter": {
-                    "name": "zdocument",
+                    "name": "zdoc",
                     "kind": "lib"
                 }
             },
@@ -41,7 +42,7 @@
                     "test",
                     "--no-run",
                     "--test=builder",
-                    "--package=zdocument"
+                    "--package=zdoc"
                 ],
                 "filter": {
                     "name": "builder",

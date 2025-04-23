@@ -1,4 +1,5 @@
 use facet_core::{Facet, FieldError, Shape};
+use facet_reflect::ReflectError;
 
 use crate::Document;
 
@@ -16,16 +17,16 @@ pub enum Error {
     ExpectedList,
     #[error("expected a string to initialize {0}")]
     ExpectedString(&'static Shape),
+    #[error("expected enum")]
+    ExpectedEnum(&'static Shape),
     #[error("map keys must be strings, got: {0}")]
     NonStringMapKey(&'static Shape),
-    #[error("integer is too large for the target type")]
-    IntOverflow,
-    #[error("unsupported poke type: {0}")]
-    UnsupportedPoke(&'static Shape),
     #[error("unsupported value type: {0}")]
     UnsupportedValue(&'static Shape),
     #[error("{0}: {1}")]
     Field(FieldError, &'static Shape),
+    #[error(transparent)]
+    Reflect(#[from] ReflectError),
     #[error("unexpected shape: {0}")]
     UnexpectedShape(&'static Shape),
 }
@@ -52,9 +53,10 @@ pub fn from_document<T: Facet>(doc: &Document) -> Result<T, Error> {
 ///
 /// If the node does not match the shape of `T`, this returns an error.
 pub fn from_document_node<T: Facet>(node: crate::Node) -> Result<T, Error> {
-    let (poke, _guard) = facet_reflect::PokeUninit::alloc::<T>();
-    let opaque = de::deserialize_node(poke, &node)?;
-    Ok(unsafe { opaque.read::<T>() })
+    let wip = de::deserialize_node(facet_reflect::Wip::alloc::<T>(), &node)?;
+    wip.build()
+        .and_then(facet_reflect::HeapValue::materialize)
+        .map_err(Into::into)
 }
 
 /// Deserialize a builder into a facet type.
@@ -74,9 +76,10 @@ pub fn from_builder<T: Facet>(builder: &crate::Builder) -> Result<T, Error> {
 /// If the node does not match the shape of `T`, this returns an error.
 #[cfg(feature = "alloc")]
 pub fn from_builder_node<T: Facet>(node: &crate::builder::Node) -> Result<T, Error> {
-    let (poke, _guard) = facet_reflect::PokeUninit::alloc::<T>();
-    let opaque = de::deserialize_node(poke, &node)?;
-    Ok(unsafe { opaque.read::<T>() })
+    let wip = de::deserialize_node(facet_reflect::Wip::alloc::<T>(), &node)?;
+    wip.build()
+        .and_then(facet_reflect::HeapValue::materialize)
+        .map_err(Into::into)
 }
 
 /// Serialize a facet type into a builder that can be modified further.
@@ -119,7 +122,7 @@ mod tests {
     use crate::builder::{self, Arg, Value};
 
     use super::*;
-    use alloc::{string::String, vec, vec::Vec};
+    use alloc::{borrow::Cow, collections::btree_map::BTreeMap, string::String, vec, vec::Vec};
     use facet::Facet;
 
     #[derive(Facet, Debug, PartialEq)]
@@ -222,11 +225,12 @@ mod tests {
                 Arg {
                     name: Some("int".into()),
                     value: Value::Int(123),
+                },
+                Arg {
+                    name: Some("enum_".into()),
+                    value: Value::String("UnitVariant".into())
                 }
             ])
-            .add_child_with(|child| {
-                child.set_name("enum_").set_ty("UnitVariant");
-            })
             .add_child_with(|child| {
                 child.set_name("vec").set_args([1i32, 2, 3]);
             })
@@ -243,50 +247,49 @@ mod tests {
             doc.root(),
             &*builder::Node::empty()
                 .push_arg(123i32)
-                .push_ordered(builder::Node::empty().with_ty("UnitVariant"))
+                .push_arg("UnitVariant")
                 .push_ordered("hello")
         );
         let de: (i32, Enum, String) = from_document(&doc).unwrap();
         assert_eq!(de, tuple);
     }
 
-    // // Waiting on https://github.com/facet-rs/facet/pull/184 to be released.
-    // #[test]
-    // fn mapping_newtype_key() {
-    //     #[derive(Facet, PartialEq, Eq, PartialOrd, Ord, Debug)]
-    //     struct Key(String);
-    //     let mut map = BTreeMap::new();
-    //     map.insert(Key(String::from("a")), 1i32);
-    //     map.insert(Key(String::from("b")), 2i32);
-    //     map.insert(Key(String::from("c")), 3i32);
-    //     let builder = to_builder(&map).unwrap();
-    //     let doc = builder.build();
-    //     assert_eq!(doc.root(), builder.root());
-    //     assert_eq!(
-    //         doc.root(),
-    //         builder::Node {
-    //             children: Cow::Borrowed(&[]),
-    //             args: Cow::Borrowed(&[
-    //                 builder::Arg {
-    //                     name: Some("a".into()),
-    //                     value: builder::Value::Int(1),
-    //                 },
-    //                 builder::Arg {
-    //                     name: Some("b".into()),
-    //                     value: builder::Value::Int(2),
-    //                 },
-    //                 builder::Arg {
-    //                     name: Some("c".into()),
-    //                     value: builder::Value::Int(3),
-    //                 }
-    //             ]),
-    //             name: "".into(),
-    //             ty: "".into()
-    //         }
-    //     );
-    //     let map1: BTreeMap<Key, i32> = from_document(&doc).unwrap();
-    //     let map2: BTreeMap<Key, i32> = from_builder(&builder).unwrap();
-    //     assert_eq!(map1, map);
-    //     assert_eq!(map2, map);
-    // }
+    #[test]
+    fn mapping_newtype_key() {
+        #[derive(Facet, PartialEq, Eq, PartialOrd, Ord, Debug)]
+        struct Key(String);
+        let mut map = BTreeMap::new();
+        map.insert(Key(String::from("a")), 1i32);
+        map.insert(Key(String::from("b")), 2i32);
+        map.insert(Key(String::from("c")), 3i32);
+        let builder = to_builder(&map).unwrap();
+        let doc = builder.build();
+        assert_eq!(doc.root(), builder.root());
+        assert_eq!(
+            doc.root(),
+            builder::Node {
+                children: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[
+                    builder::Arg {
+                        name: Some("a".into()),
+                        value: builder::Value::Int(1),
+                    },
+                    builder::Arg {
+                        name: Some("b".into()),
+                        value: builder::Value::Int(2),
+                    },
+                    builder::Arg {
+                        name: Some("c".into()),
+                        value: builder::Value::Int(3),
+                    }
+                ]),
+                name: "".into(),
+                ty: "".into()
+            }
+        );
+        let map1: BTreeMap<Key, i32> = from_document(&doc).unwrap();
+        let map2: BTreeMap<Key, i32> = from_builder(&builder).unwrap();
+        assert_eq!(map1, map);
+        assert_eq!(map2, map);
+    }
 }
