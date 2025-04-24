@@ -103,9 +103,9 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "facet"
-version = "0.9.7"
+version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d463cdbfd164edf1bba30df23cf639dc6fbd000a03311f5f8dcfeff08299eb03"
+checksum = "36b55e98a6cc63c843db91f6db4be9f47067b9bd07d93560da0ba4c0f55f20fd"
 dependencies = [
  "facet-core",
  "facet-derive",
@@ -114,9 +114,9 @@ dependencies = [
 
 [[package]]
 name = "facet-core"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f5905953877795d96aef172f2206950339e350f9862c0b1c0d15b781c7a97c0"
+checksum = "5227e1c925a1f21ea3ebff90e08af0b34b59975171cf00fcee36b917941d1ac0"
 dependencies = [
  "bitflags",
  "impls",
@@ -124,9 +124,9 @@ dependencies = [
 
 [[package]]
 name = "facet-derive"
-version = "0.9.7"
+version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1e70487e8dfa130f15b682d12a5a72ea05d49be05fdd3d5a2515b7bac6b707a"
+checksum = "9982f286c2121f36d6921c7ecedde49158a5ba8eef622a4fd777ff502c1348e3"
 dependencies = [
  "facet-core",
  "facet-derive-emit",
@@ -134,27 +134,27 @@ dependencies = [
 
 [[package]]
 name = "facet-derive-emit"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef4e65d115e0ba547d9ff23808dce39b9147c89608c45494a3054d48cec2dae4"
+checksum = "2ed20e29f8aa502cf1263eb040e3442ef84636e89a88ee8dffcda336a1152a38"
 dependencies = [
  "facet-derive-parse",
 ]
 
 [[package]]
 name = "facet-derive-parse"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a4a06efa3e0b08f2aff06def429a0a06b304379167be9491e24bad0f282c19d"
+checksum = "71ea122ff95ac65c86bf18d0ba7f04f087ef5dd20f7dc76cb5bd69cbb14bd8ad"
 dependencies = [
  "unsynn",
 ]
 
 [[package]]
 name = "facet-reflect"
-version = "0.10.4"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "897aee2fc70e2a538ca9dcf0e31d6523995ab3b2edaba8e23175966fd5b7ffe5"
+checksum = "6bf4267181ad45e95484b0cce1807c5973039e3d4dcacb55ab74f73293b1a3a8"
 dependencies = [
  "bitflags",
  "facet-core",
@@ -243,18 +243,18 @@ dependencies = [
 
 [[package]]
 name = "munge"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0091202c98cf06da46c279fdf50cccb6b1c43b4521abdf6a27b4c7e71d5d9d7"
+checksum = "9e22e7961c873e8b305b176d2a4e1d41ce7ba31bc1c52d2a107a89568ec74c55"
 dependencies = [
  "munge_macro",
 ]
 
 [[package]]
 name = "munge_macro"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "734799cf91479720b2f970c61a22850940dd91e27d4f02b1c6fc792778df2459"
+checksum = "0ac7d860b767c6398e88fe93db73ce53eb496057aa6895ffa4d60cb02e1d1c6b"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -8,7 +8,7 @@ use crate::{
     access::{self, ArgRef as _},
 };
 
-fn deserialize_entry<'mem, 'a, Arg: access::ArgRef<'a>, Child: access::NodeRef<'a>>(
+fn deserialize_entry<'mem, Arg: access::ArgRef<'mem>, Child: access::NodeRef<'mem>>(
     wip: Wip<'mem>,
     entry: &access::EntryRef<Arg, Child>,
 ) -> Result<Wip<'mem>, Error> {
@@ -20,7 +20,7 @@ fn deserialize_entry<'mem, 'a, Arg: access::ArgRef<'a>, Child: access::NodeRef<'
 
 // The reference implementation in `facet-json-read` uses a manual stack to
 // avoid recursion, but let's not care about that for now.
-pub fn deserialize_node<'mem, 'a, N: access::NodeRef<'a>>(
+pub fn deserialize_node<'mem, N: access::NodeRef<'mem>>(
     wip: Wip<'mem>,
     node: &N,
 ) -> Result<Wip<'mem>, Error> {
@@ -40,7 +40,7 @@ pub fn deserialize_node<'mem, 'a, N: access::NodeRef<'a>>(
     }
 }
 
-fn deserialize_node_as_list<'mem, 'a, N: access::NodeRef<'a>>(
+fn deserialize_node_as_list<'mem, N: access::NodeRef<'mem>>(
     list: Wip<'mem>,
     node: &N,
 ) -> Result<Wip<'mem>, Error> {
@@ -51,7 +51,7 @@ fn deserialize_node_as_list<'mem, 'a, N: access::NodeRef<'a>>(
     Ok(wip)
 }
 
-fn deserialize_node_as_map<'mem, 'a, N: access::NodeRef<'a>>(
+fn deserialize_node_as_map<'mem, N: access::NodeRef<'mem>>(
     map: Wip<'mem>,
     node: &N,
 ) -> Result<Wip<'mem>, Error> {
@@ -63,7 +63,7 @@ fn deserialize_node_as_map<'mem, 'a, N: access::NodeRef<'a>>(
     Ok(wip)
 }
 
-fn deserialize_node_as_struct<'mem, 'a, N: access::NodeRef<'a>>(
+fn deserialize_node_as_struct<'mem, N: access::NodeRef<'mem>>(
     mut wip: Wip<'mem>,
     node: &N,
     def: Struct,
@@ -94,7 +94,7 @@ fn deserialize_node_as_struct<'mem, 'a, N: access::NodeRef<'a>>(
     }
 }
 
-fn deserialize_node_as_enum<'mem, 'a, N: access::NodeRef<'a>>(
+fn deserialize_node_as_enum<'mem, N: access::NodeRef<'mem>>(
     wip: Wip<'mem>,
     node: &N,
 ) -> Result<Wip<'mem>, Error> {
@@ -114,7 +114,7 @@ fn deserialize_node_as_enum<'mem, 'a, N: access::NodeRef<'a>>(
     }
 }
 
-fn deserialize_node_as_option<'mem, 'a, N: access::NodeRef<'a>>(
+fn deserialize_node_as_option<'mem, N: access::NodeRef<'mem>>(
     wip: Wip<'mem>,
     node: &N,
 ) -> Result<Wip<'mem>, Error> {
@@ -127,7 +127,7 @@ fn deserialize_node_as_option<'mem, 'a, N: access::NodeRef<'a>>(
     }
 }
 
-fn deserialize_value<'mem>(wip: Wip<'mem>, value: ValueRef<'_>) -> Result<Wip<'mem>, Error> {
+fn deserialize_value<'mem>(wip: Wip<'mem>, value: ValueRef<'mem>) -> Result<Wip<'mem>, Error> {
     match wip.shape().def {
         Def::Scalar(_) => deserialize_value_as_scalar(wip, value).map_err(Into::into),
         Def::Struct(s) => deserialize_value_as_struct(wip, value, s),
@@ -141,7 +141,7 @@ fn deserialize_value<'mem>(wip: Wip<'mem>, value: ValueRef<'_>) -> Result<Wip<'m
 /// Deserialize a value into a list with a single item.
 fn deserialize_value_as_list<'mem>(
     wip: Wip<'mem>,
-    value: ValueRef<'_>,
+    value: ValueRef<'mem>,
 ) -> Result<Wip<'mem>, Error> {
     deserialize_value(wip.put_empty_list()?.push()?, value)?
         .pop()
@@ -152,7 +152,7 @@ fn deserialize_value_as_list<'mem>(
 /// unit type or a unit struct if the value is null.
 fn deserialize_value_as_struct<'mem>(
     wip: Wip<'mem>,
-    value: ValueRef<'_>,
+    value: ValueRef<'mem>,
     s: Struct,
 ) -> Result<Wip<'mem>, Error> {
     match s.kind {
@@ -170,7 +170,7 @@ fn deserialize_value_as_struct<'mem>(
 /// string (the enum variant), and the enum variant must be a unit variant.
 fn deserialize_value_as_enum<'mem>(
     wip: Wip<'mem>,
-    value: ValueRef<'_>,
+    value: ValueRef<'mem>,
 ) -> Result<Wip<'mem>, Error> {
     let ValueRef::String(variant) = value else {
         return Err(Error::ExpectedString(wip.shape()));
@@ -180,7 +180,7 @@ fn deserialize_value_as_enum<'mem>(
 
 fn deserialize_value_as_option<'mem>(
     wip: Wip<'mem>,
-    value: ValueRef<'_>,
+    value: ValueRef<'mem>,
 ) -> Result<Wip<'mem>, Error> {
     if let ValueRef::Null = value {
         wip.put_default().map_err(Into::into)
@@ -192,14 +192,14 @@ fn deserialize_value_as_option<'mem>(
 }
 
 #[expect(clippy::too_many_lines)]
-fn deserialize_value_as_scalar<'mem, 'a>(
+fn deserialize_value_as_scalar<'mem>(
     wip: Wip<'mem>,
-    value: ValueRef<'a>,
+    value: ValueRef<'mem>,
 ) -> Result<Wip<'mem>, ReflectError> {
-    fn try_put_int<T: TryFrom<i64> + Facet + 'static>(
-        wip: Wip<'_>,
+    fn try_put_int<'mem, T: TryFrom<i64> + Facet<'mem>>(
+        wip: Wip<'mem>,
         value: i64,
-    ) -> Result<Wip<'_>, ReflectError> {
+    ) -> Result<Wip<'mem>, ReflectError> {
         T::try_from(value)
             .map_err(|_| ReflectError::OperationFailed {
                 shape: T::SHAPE,
@@ -207,10 +207,10 @@ fn deserialize_value_as_scalar<'mem, 'a>(
             })
             .and_then(move |value| wip.put(value))
     }
-    fn try_put_uint<T: TryFrom<u64> + Facet + 'static>(
-        wip: Wip<'_>,
+    fn try_put_uint<'mem, T: TryFrom<u64> + Facet<'mem>>(
+        wip: Wip<'mem>,
         value: u64,
-    ) -> Result<Wip<'_>, ReflectError> {
+    ) -> Result<Wip<'mem>, ReflectError> {
         T::try_from(value)
             .map_err(|_| ReflectError::OperationFailed {
                 shape: T::SHAPE,
@@ -324,11 +324,14 @@ fn deserialize_value_as_scalar<'mem, 'a>(
             })
         }
         ValueRef::String(value) => {
+            if shape.is_type::<&'mem str>() {
+                return wip.put::<&'mem str>(value.as_ref());
+            }
             if shape.is_type::<alloc::string::String>() {
                 return wip.put(value.to_owned());
             }
-            if shape.is_type::<Cow<'a, str>>() {
-                return wip.put(Cow::Owned(value.to_owned()));
+            if shape.is_type::<Cow<'mem, str>>() {
+                return wip.put(Cow::Borrowed(value));
             }
             Err(ReflectError::WrongShape {
                 expected: alloc::string::String::SHAPE,
@@ -336,6 +339,9 @@ fn deserialize_value_as_scalar<'mem, 'a>(
             })
         }
         ValueRef::Binary(value) => {
+            if shape.is_type::<&'mem [u8]>() {
+                return wip.put::<&'mem [u8]>(value.as_ref());
+            }
             if shape.is_type::<alloc::vec::Vec<u8>>() {
                 return wip.put(value.to_owned());
             }

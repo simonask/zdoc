@@ -1,4 +1,4 @@
-use alloc::borrow::ToOwned as _;
+use alloc::{borrow::Cow, string::String, vec::Vec};
 use facet_core::{Def, Facet, Field, StructKind};
 use facet_reflect::{Peek, PeekList, PeekMap, PeekOption};
 
@@ -178,7 +178,7 @@ fn serialize_option_as_entry(peek: PeekOption<'_>) -> Result<Entry<'_>, Error> {
     }
 }
 
-fn serialize_value_as_value(peek: Peek) -> Result<Value, Error> {
+fn serialize_value_as_value<'mem>(peek: Peek<'mem>) -> Result<Value<'mem>, Error> {
     let shape = peek.shape();
 
     if let Some(value) = try_get::<i8>(&peek) {
@@ -215,22 +215,29 @@ fn serialize_value_as_value(peek: Peek) -> Result<Value, Error> {
         return Ok(Value::Bool(*value as _));
     }
 
-    if let Some(value) = try_get::<alloc::string::String>(&peek) {
-        return Ok(Value::String(value.clone().into()));
+    if let Some(value) = try_get::<String>(&peek) {
+        return Ok(Value::String(Cow::Borrowed(value)));
     }
-    if let Some(value) = try_get::<alloc::borrow::Cow<'_, str>>(&peek) {
-        return Ok(Value::String(alloc::borrow::Cow::Owned(
-            value.clone().into_owned(),
-        )));
+    if let Some(value) = try_get::<Cow<'mem, str>>(&peek) {
+        return Ok(Value::String(Cow::Borrowed(value.as_ref())));
     }
     if let Some(value) = try_get::<&str>(&peek) {
-        return Ok(Value::String(value.to_owned().into()));
+        return Ok(Value::String(Cow::Borrowed(value)));
+    }
+    if let Some(value) = try_get::<Vec<u8>>(&peek) {
+        return Ok(Value::Binary(Cow::Borrowed(value.as_ref())));
+    }
+    // if let Some(value) = try_get::<Cow<'mem, [u8]>>(&peek) {
+    //     return Ok(Value::Binary(Cow::Borrowed(value.as_ref())));
+    // }
+    if let Some(value) = try_get::<&[u8]>(&peek) {
+        return Ok(Value::Binary(Cow::Borrowed(value)));
     }
 
     Err(Error::UnexpectedShape(shape))
 }
 
 // TODO: Feels like this is missing as a utility method in `PeekValue`.
-fn try_get<'a, T: Facet>(value: &'a Peek<'_>) -> Option<&'a T> {
+fn try_get<'mem, T: Facet<'mem>>(value: &Peek<'mem>) -> Option<&'mem T> {
     value.get().ok()
 }

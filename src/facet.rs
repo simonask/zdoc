@@ -40,19 +40,27 @@ impl core::fmt::Debug for Error {
 
 /// Deserialize a document into a facet type.
 ///
+/// If `T` contains any borrowed string or binary types (`&str`, `Cow<'_, str>`,
+/// `&[u8]`, etc.), the data will be borrowed from the document rather than
+/// cloned.
+///
 /// # Errors
 ///
 /// If the document does not match the shape of `T`, this returns an error.
-pub fn from_document<T: Facet>(doc: &Document) -> Result<T, Error> {
+pub fn from_document<'a, T: Facet<'a>>(doc: &'a Document) -> Result<T, Error> {
     from_document_node(doc.root())
 }
 
 /// Deserialize a document node into a facet type.
 ///
+/// If `T` contains any borrowed string or binary types (`&str`, `Cow<'_, str>`,
+/// `&[u8]`, etc.), the data will be borrowed from the node rather than
+/// cloned.
+///
 /// # Errors
 ///
 /// If the node does not match the shape of `T`, this returns an error.
-pub fn from_document_node<T: Facet>(node: crate::Node) -> Result<T, Error> {
+pub fn from_document_node<'a, T: Facet<'a>>(node: crate::Node<'a>) -> Result<T, Error> {
     let wip = de::deserialize_node(facet_reflect::Wip::alloc::<T>(), &node)?;
     wip.build()
         .and_then(facet_reflect::HeapValue::materialize)
@@ -61,21 +69,29 @@ pub fn from_document_node<T: Facet>(node: crate::Node) -> Result<T, Error> {
 
 /// Deserialize a builder into a facet type.
 ///
+/// If `T` contains any borrowed string or binary types (`&str`, `Cow<'_, str>`,
+/// `&[u8]`, etc.), the data will be borrowed from the builder rather than
+/// cloned.
+///
 /// # Errors
 ///
 /// If the document does not match the shape of `T`, this returns an error.
 #[cfg(feature = "alloc")]
-pub fn from_builder<T: Facet>(builder: &crate::Builder) -> Result<T, Error> {
+pub fn from_builder<'a, T: Facet<'a>>(builder: &'a crate::Builder) -> Result<T, Error> {
     from_builder_node(builder.root())
 }
 
 /// Deserialize a builder node into a facet type.
 ///
+/// If `T` contains any borrowed string or binary types (`&str`, `Cow<'_, str>`,
+/// `&[u8]`, etc.), the data will be borrowed from the node rather than
+/// cloned.
+///
 /// # Errors
 ///
 /// If the node does not match the shape of `T`, this returns an error.
 #[cfg(feature = "alloc")]
-pub fn from_builder_node<T: Facet>(node: &crate::builder::Node) -> Result<T, Error> {
+pub fn from_builder_node<'a, T: Facet<'a>>(node: &'a crate::builder::Node) -> Result<T, Error> {
     let wip = de::deserialize_node(facet_reflect::Wip::alloc::<T>(), &node)?;
     wip.build()
         .and_then(facet_reflect::HeapValue::materialize)
@@ -84,11 +100,13 @@ pub fn from_builder_node<T: Facet>(node: &crate::builder::Node) -> Result<T, Err
 
 /// Serialize a facet type into a builder that can be modified further.
 ///
+/// Strings and binary buffers are borrowed from `value` rather than copied.
+///
 /// # Errors
 ///
 /// If the facet type could not be serialized as a builder, this returns an error.
 #[cfg(feature = "alloc")]
-pub fn to_builder<T: Facet>(value: &T) -> Result<crate::Builder, Error> {
+pub fn to_builder<'a, T: Facet<'a>>(value: &'a T) -> Result<crate::Builder<'a>, Error> {
     let mut builder = crate::Builder::new();
     builder.set_root(to_builder_node(value)?);
     Ok(builder)
@@ -96,12 +114,14 @@ pub fn to_builder<T: Facet>(value: &T) -> Result<crate::Builder, Error> {
 
 /// Serialize a facet type into a document.
 ///
+/// Strings and binary buffers are borrowed from `value` rather than copied.
+///
 /// # Errors
 ///
 /// If the facet type could not be serialized as a builder node, this returns an
 /// error.
 #[cfg(feature = "alloc")]
-pub fn to_builder_node<T: Facet>(value: &T) -> Result<crate::builder::Node, Error> {
+pub fn to_builder_node<'a, T: Facet<'a>>(value: &'a T) -> Result<crate::builder::Node<'a>, Error> {
     let peek = facet_reflect::Peek::new(value);
     ser::serialize_as_node(peek)
 }
@@ -112,7 +132,7 @@ pub fn to_builder_node<T: Facet>(value: &T) -> Result<crate::builder::Node, Erro
 ///
 /// If the facet type could not be serialized as a builder, this returns an error.
 #[cfg(feature = "alloc")]
-pub fn to_document<T: Facet>(value: &T) -> Result<crate::DocumentBuffer, Error> {
+pub fn to_document<'a, T: Facet<'a>>(value: &'a T) -> Result<crate::DocumentBuffer, Error> {
     let builder = to_builder(value)?;
     Ok(builder.build())
 }
@@ -291,5 +311,39 @@ mod tests {
         let map2: BTreeMap<Key, i32> = from_builder(&builder).unwrap();
         assert_eq!(map1, map);
         assert_eq!(map2, map);
+    }
+
+    #[test]
+    fn borrowed_str() {
+        #[derive(Facet)]
+        struct FooBorrowed<'a>(&'a str);
+        #[derive(Facet)]
+        struct FooCow<'a>(Cow<'a, str>);
+
+        let hello = String::from("hello");
+        let foo_borrowed = FooBorrowed(&hello);
+        let builder = to_builder(&foo_borrowed).unwrap();
+        assert_eq!(
+            builder.root(),
+            builder::Node::from_args([builder::Arg {
+                name: None,
+                value: builder::Value::String("hello".into()),
+            }])
+        );
+
+        // Check that builder node borrows from original object.
+        let builder::Arg { value, .. } = builder.root().args().first().unwrap();
+        let builder::Value::String(Cow::Borrowed(s)) = value else {
+            panic!("expected a borrowed string value")
+        };
+        assert_eq!(s.as_ptr(), hello.as_ptr());
+
+        // Check that the deserialized value is also borrowed from the original
+        // string.
+        let foo_cow: FooCow<'_> = from_builder_node(builder.root()).unwrap();
+        let Cow::Borrowed(s) = foo_cow.0 else {
+            panic!("expected a borrowed string value")
+        };
+        assert_eq!(s.as_ptr(), hello.as_ptr());
     }
 }
