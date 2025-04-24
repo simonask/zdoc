@@ -843,4 +843,27 @@ mod tests {
             Deserialize::deserialize(doc.root().into_deserializer()).unwrap();
         assert_eq!(foo, bar);
     }
+
+    #[test]
+    #[cfg(feature = "kdl")]
+    fn kdl_unit_enum_from_string() {
+        const KDL: &str = r#"
+string "hello"
+int 123
+enum_ "UnitVariant"
+vec 1 2
+"#;
+        let doc = crate::kdl::document_from_kdl(KDL).unwrap();
+        let root = doc.root();
+        let s = Struct::deserialize(root.into_deserializer()).unwrap();
+        assert_eq!(
+            s,
+            Struct {
+                string: "hello".to_string(),
+                int: 123,
+                enum_: Enum::UnitVariant,
+                vec: vec![1, 2],
+            }
+        );
+    }
 }

@@ -1,4 +1,10 @@
-use serde::{Deserializer as _, de::value::BorrowedStrDeserializer, forward_to_deserialize_any};
+use core::iter;
+
+use serde::{
+    Deserializer as _,
+    de::{Unexpected, value::BorrowedStrDeserializer},
+    forward_to_deserialize_any,
+};
 
 use crate::{
     ClassifyNode, ValueRef,
@@ -8,6 +14,14 @@ use crate::{
 use super::Error;
 
 pub struct DeNode<N>(pub N);
+
+impl<'de, N: access::NodeRef<'de>> serde::de::IntoDeserializer<'de, Error> for DeNode<N> {
+    type Deserializer = Self;
+
+    fn into_deserializer(self) -> Self {
+        self
+    }
+}
 
 impl<'de, N: access::NodeRef<'de>> serde::Deserializer<'de> for DeNode<N> {
     type Error = Error;
@@ -317,13 +331,23 @@ impl<'de, N: access::NodeRef<'de>> serde::de::EnumAccess<'de> for EnumAccess<N> 
         V: serde::de::DeserializeSeed<'de>,
     {
         let ty = self.node.ty();
+        if ty.is_empty() {
+            if let Some(first_arg) = self.node.args().next() {
+                if let ValueRef::String(variant) = first_arg.value() {
+                    let variant = seed.deserialize(BorrowedStrDeserializer::new(variant))?;
+                    return Ok((variant, VariantAccess::Unit));
+                }
+            }
+        }
+
         let variant = seed.deserialize(BorrowedStrDeserializer::new(ty))?;
-        Ok((variant, VariantAccess { node: self.node }))
+        Ok((variant, VariantAccess::TypedNode(self.node)))
     }
 }
 
-struct VariantAccess<N> {
-    node: N,
+enum VariantAccess<N> {
+    Unit,
+    TypedNode(N),
 }
 
 impl<'de, N: access::NodeRef<'de>> serde::de::VariantAccess<'de> for VariantAccess<N> {
@@ -331,21 +355,64 @@ impl<'de, N: access::NodeRef<'de>> serde::de::VariantAccess<'de> for VariantAcce
 
     #[inline]
     fn unit_variant(self) -> Result<(), Self::Error> {
-        Ok(())
+        match self {
+            VariantAccess::Unit => Ok(()),
+            VariantAccess::TypedNode(node) => {
+                if !node.is_empty() {
+                    // We're returning an error - might as well perform an
+                    // "expensive" calculation to provide the most accurate
+                    // error information.
+                    let classify = node.classify();
+                    return Err(serde::de::Error::invalid_type(
+                        match classify {
+                            ClassifyNode::Struct
+                            | ClassifyNode::StructVariant
+                            | ClassifyNode::Mixed
+                            | ClassifyNode::MixedVariant => Unexpected::StructVariant,
+                            ClassifyNode::Seq | ClassifyNode::SeqVariant => {
+                                if node.entries().len() == 1 {
+                                    Unexpected::NewtypeVariant
+                                } else {
+                                    Unexpected::TupleVariant
+                                }
+                            }
+                            ClassifyNode::Value | ClassifyNode::ValueVariant => {
+                                Unexpected::NewtypeVariant
+                            }
+                            ClassifyNode::Unit | ClassifyNode::UnitVariant => unreachable!(),
+                        },
+                        &"unit variant",
+                    ));
+                }
+
+                Ok(())
+            }
+        }
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
     where
         T: serde::de::DeserializeSeed<'de>,
     {
-        if let Some(first) = self.node.entries().next() {
+        let Self::TypedNode(node) = self else {
+            return Err(serde::de::Error::invalid_type(
+                Unexpected::UnitVariant,
+                &"newtype variant",
+            ));
+        };
+        let mut entries = node.entries();
+        if let Some(first) = entries.next() {
+            if entries.next().is_some() {
+                return Err(serde::de::Error::invalid_length(node.entries().len(), &"1"));
+            }
             match first {
                 access::EntryRef::Arg(arg) => seed.deserialize(arg.value()),
                 access::EntryRef::Child(node) => seed.deserialize(DeNode(node)),
             }
         } else {
-            Err(serde::de::Error::custom(
-                "variant has no arguments or children",
+            Err(serde::de::Error::invalid_type(
+                Unexpected::UnitVariant,
+                &"newtype variant",
             ))
         }
     }
@@ -354,7 +421,13 @@ impl<'de, N: access::NodeRef<'de>> serde::de::VariantAccess<'de> for VariantAcce
     where
         V: serde::de::Visitor<'de>,
     {
-        DeNode(self.node).deserialize_seq(visitor)
+        let Self::TypedNode(node) = self else {
+            // Deserialize the empty sequence.
+            return serde::de::value::SeqDeserializer::new(iter::empty::<DeNode<N>>())
+                .deserialize_seq(visitor);
+        };
+
+        DeNode(node).deserialize_seq(visitor)
     }
 
     fn struct_variant<V>(
@@ -365,7 +438,12 @@ impl<'de, N: access::NodeRef<'de>> serde::de::VariantAccess<'de> for VariantAcce
     where
         V: serde::de::Visitor<'de>,
     {
-        DeNode(self.node).deserialize_map(visitor)
+        let Self::TypedNode(node) = self else {
+            // Deserialize the empty map.
+            return serde::de::value::MapDeserializer::new(iter::empty::<(&str, DeNode<N>)>())
+                .deserialize_map(visitor);
+        };
+        DeNode(node).deserialize_map(visitor)
     }
 }
 
