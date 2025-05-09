@@ -1,14 +1,5 @@
 {
     "editor.formatOnSave": true,
     "rust-analyzer.check.command": "clippy",
-    "rust-analyzer.cargo.features": [
-        "serde",
-        "json",
-        "kdl",
-        "yaml",
-        "xml",
-        "bincode",
-        "rkyv",
-        "facet"
-    ],
+    "rust-analyzer.cargo.features": "all",
 }

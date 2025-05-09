@@ -99,11 +99,21 @@ impl<'a> Builder<'a> {
         if root.is_empty() {
             return DocumentBuffer::default();
         }
+        cache.set_auto_intern_limit(self.auto_intern_limit);
 
         // This recursively serializes the document to the binary format.
         cache.raw.set_root(root);
 
         cache.raw.build()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn into_static(self) -> Builder<'static> {
+        Builder {
+            root: self.root.into_static(),
+            auto_intern_limit: self.auto_intern_limit,
+        }
     }
 }
 
@@ -124,6 +134,10 @@ impl BuildCache {
     #[inline]
     pub fn deallocate(&mut self) {
         *self = Self::default();
+    }
+
+    fn set_auto_intern_limit(&mut self, limit: usize) {
+        self.raw.strings.limit = limit;
     }
 }
 

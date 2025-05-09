@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, vec};
+use alloc::{borrow::Cow, vec, vec::Vec};
 
 use super::{Node, Value};
 
@@ -36,13 +36,22 @@ impl<'a> Arg<'a> {
     #[must_use]
     pub fn into_key_value_node(self) -> Node<'a> {
         Node {
-            children: Cow::Borrowed(&[]),
-            args: Cow::Owned(vec![Arg {
+            children: Vec::new(),
+            args: vec![Arg {
                 name: None,
                 value: self.value,
-            }]),
+            }],
             name: self.name.unwrap_or_default(),
             ty: Cow::Borrowed(""),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn into_static(self) -> Arg<'static> {
+        Arg {
+            name: self.name.map(|s| Cow::Owned(s.into_owned())),
+            value: self.value.into_static(),
         }
     }
 }

@@ -664,6 +664,25 @@ impl RawDocument {
             .map_err(|_| ValidationErrorKind::InvalidUtf8.at_offset(header.strings_offset))
     }
 
+    /// Get a string value from the document, checking whether it is in bounds
+    /// and valid UTF-8.
+    ///
+    /// # Errors
+    ///
+    /// If the range is out of bounds, or the string is not valid UTF-8, this
+    /// returns an error.
+    #[inline]
+    pub fn get_string(&self, range: codec::StringRange) -> Result<&str, ValidationError> {
+        let header = self.header();
+        let start = header.strings_offset as usize + range.start as usize;
+        let end = start + range.len as usize;
+        let bytes = self.bytes.get(start..end).ok_or_else(|| {
+            ValidationErrorKind::StringOutOfBounds.at_offset(header.strings_offset)
+        })?;
+        core::str::from_utf8(bytes)
+            .map_err(|_| ValidationErrorKind::InvalidUtf8.at_offset(header.strings_offset))
+    }
+
     /// Check the nodes in the document.
     ///
     /// This checks that the nodes in the document are valid, including

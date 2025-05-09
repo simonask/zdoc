@@ -10,8 +10,8 @@ use super::{Arg, Entry, IntoEntry, Value};
 /// owned by a [`Builder`].
 #[derive(Clone, Default)]
 pub struct Node<'a> {
-    pub children: Cow<'a, [Node<'a>]>,
-    pub args: Cow<'a, [Arg<'a>]>,
+    pub children: Vec<Node<'a>>,
+    pub args: Vec<Arg<'a>>,
     pub name: Cow<'a, str>,
     pub ty: Cow<'a, str>,
 }
@@ -21,8 +21,8 @@ impl<'a> Node<'a> {
     #[must_use]
     pub const fn empty() -> Self {
         Node {
-            children: Cow::Borrowed(&[]),
-            args: Cow::Borrowed(&[]),
+            children: Vec::new(),
+            args: Vec::new(),
             name: Cow::Borrowed(""),
             ty: Cow::Borrowed(""),
         }
@@ -174,8 +174,8 @@ impl<'a> Node<'a> {
     /// between arguments and children.
     pub fn push(&mut self, value: impl IntoEntry<'a>) -> &mut Self {
         match value.into_entry() {
-            Entry::Arg(arg) => self.args.to_mut().push(arg),
-            Entry::Child(node) => self.children.to_mut().push(node),
+            Entry::Arg(arg) => self.args.push(arg),
+            Entry::Child(node) => self.children.push(node),
         }
         self
     }
@@ -270,12 +270,6 @@ impl<'a> Node<'a> {
     }
 
     #[inline]
-    pub fn set_children_borrowed(&mut self, children: &'a [Node<'a>]) -> &mut Self {
-        self.children = Cow::Borrowed(children);
-        self
-    }
-
-    #[inline]
     #[must_use]
     pub fn children(&self) -> &[Node<'a>] {
         &self.children
@@ -283,17 +277,11 @@ impl<'a> Node<'a> {
 
     #[inline]
     pub fn children_mut(&mut self) -> &mut Vec<Node<'a>> {
-        self.children.to_mut()
+        &mut self.children
     }
 
     pub fn set_args(&mut self, args: impl IntoIterator<Item: Into<Arg<'a>>>) -> &mut Self {
         self.args = args.into_iter().map(Into::into).collect();
-        self
-    }
-
-    #[inline]
-    pub fn set_args_borrowed(&mut self, args: &'a [Arg<'a>]) -> &Self {
-        self.args = Cow::Borrowed(args);
         self
     }
 
@@ -305,7 +293,16 @@ impl<'a> Node<'a> {
 
     #[inline]
     pub fn args_mut(&mut self) -> &mut Vec<Arg<'a>> {
-        self.args.to_mut()
+        &mut self.args
+    }
+
+    pub fn into_static(self) -> Node<'static> {
+        let mut node = Node::empty();
+        node.set_ty(self.ty.into_owned())
+            .set_name(self.name.into_owned())
+            .set_args(self.args.into_iter().map(Arg::into_static))
+            .set_children(self.children.into_iter().map(Node::into_static));
+        node
     }
 }
 

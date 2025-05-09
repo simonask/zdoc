@@ -59,6 +59,21 @@ pub fn builder_from_kdl_document(kdl: &KdlDocument) -> Builder<'_> {
     Builder::from(kdl)
 }
 
+/// Create a builder from a KDL document.
+///
+/// This version borrows strings from the KDL document.
+///
+/// # Errors
+///
+/// If `kdl` is not valid KDL syntax, this function will return an error.
+#[inline]
+pub fn builder_from_kdl(kdl: &str) -> Result<Builder<'static>> {
+    Ok(
+        builder_from_kdl_document(&KdlDocument::from_str(kdl).map_err(Error::custom)?)
+            .into_static(),
+    )
+}
+
 impl<'a> From<&'a KdlDocument> for Builder<'a> {
     fn from(value: &'a KdlDocument) -> Self {
         let mut builder = Builder::new();

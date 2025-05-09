@@ -165,6 +165,29 @@ pub fn document_from_json_with_settings(
 
 /// Convert JSON to [`Builder`], which can be modified further.
 ///
+/// # Errors
+///
+/// If the string is not a valid JSON document, this returns an error.
+pub fn builder_from_json(json: &str) -> Result<Builder<'static>> {
+    builder_from_json_with_settings(json, &JsonSettings::default())
+}
+
+/// Convert JSON to [`Builder`], which can be modified further.
+///
+/// # Errors
+///
+/// If the string is not a valid JSON document, this returns an error.
+pub fn builder_from_json_with_settings(
+    json: &str,
+    settings: &JsonSettings,
+) -> Result<Builder<'static>> {
+    let json = serde_json::from_str(json).map_err(Error::custom)?;
+    let builder = builder_from_json_value_with_settings(&json, settings);
+    Ok(builder.into_static())
+}
+
+/// Convert JSON to [`Builder`], which can be modified further.
+///
 /// Strings from the JSON value are borrowed, not cloned, so the JSON value must
 /// outlive the returned builder.
 ///

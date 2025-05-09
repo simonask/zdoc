@@ -246,7 +246,7 @@ impl From<core::ops::Range<u32>> for NodeRange {
 ///
 /// In a valid document, the start and len are guaranteed to fall on valid UTF-8
 /// char boundaries.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C, align(4))]
 pub struct StringRange {
     /// Start of the string from `header.strings_offset`.
