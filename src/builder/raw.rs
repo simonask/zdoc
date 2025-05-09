@@ -18,7 +18,7 @@ use super::{Strings, Value};
 pub struct RawBuilder {
     nodes: Vec<codec::Node>,
     args: Vec<codec::Arg>,
-    strings: Strings,
+    pub(super) strings: Strings,
     binary: Vec<u8>,
 }
 

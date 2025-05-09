@@ -34,6 +34,11 @@ struct Args {
     #[arg(long, default_value_t = ColorChoice::Auto, value_name = "WHEN", value_enum, global = true)]
     color: ColorChoice,
 
+    /// When passed, print analysis of the document to stderr instead of
+    /// producing output.
+    #[clap(long)]
+    analyze: bool,
+
     #[command(flatten)]
     json: JsonArgs,
 }
@@ -42,18 +47,18 @@ struct Args {
 #[command(next_help_heading = "JSON options")]
 struct JsonArgs {
     #[clap(long, default_value = "$type")]
-    type_tag: String,
+    json_type_tag: String,
     #[clap(long, default_value = "$items")]
-    items_tag: String,
+    json_items_tag: String,
     #[clap(long, default_value = "$value")]
-    value_tag: String,
+    json_value_tag: String,
 }
 
 fn try_main(args: Args) -> Result<(), Box<dyn Error>> {
     if args.input.is_std() && args.input_format.is_none() {
         return Err("--format is required when input is terminal/stdout".into());
     }
-    if args.output.is_std() && args.format.is_none() {
+    if args.output.is_std() && args.format.is_none() && !args.analyze {
         return Err("--format is required when output is terminal/stdout".into());
     }
     if !args.output.is_std() && !args.input.is_std() && args.input.path() == args.output.path() {
@@ -66,7 +71,13 @@ fn try_main(args: Args) -> Result<(), Box<dyn Error>> {
     };
     let output_format = match args.format {
         Some(format) => format,
-        None => guess_format(args.output.path())?,
+        None => {
+            if args.analyze {
+                Format::Zdoc
+            } else {
+                guess_format(args.output.path())?
+            }
+        }
     };
     let color = match args.color {
         ColorChoice::Auto => args.output.is_tty(),
@@ -79,21 +90,96 @@ fn try_main(args: Args) -> Result<(), Box<dyn Error>> {
 
     // Skip any parsing steps if the formats are the same and no pretty/compact
     // options are set.
-    if input_format == output_format && !args.pretty && !args.compact && !color {
+    if input_format == output_format && !args.pretty && !args.compact && !color && !args.analyze {
         std::io::copy(&mut input, &mut output)?;
         return Ok(());
     }
 
     let mut input_buffer = Vec::new();
     input.read_to_end(&mut input_buffer)?;
-    let builder = input_format.parse(&input_buffer)?;
-    let doc = builder.build();
+
+    let doc_buffer;
+    let doc;
+
+    if let Format::Zdoc = input_format {
+        doc = zdoc::Document::from_slice(&input_buffer)?;
+    } else {
+        let builder = input_format.parse(&input_buffer)?;
+        doc_buffer = builder.build();
+        doc = &doc_buffer;
+    }
+
+    if args.analyze {
+        if args.format.is_some_and(|f| f != Format::Zdoc) {
+            eprintln!("Warning: Ignoring `--format` when using `--analyze`.");
+        }
+        if !output.is_std() {
+            eprintln!("Warning: Ignoring output file when using `--analyze`.");
+        }
+        let doc = zdoc::Document::from_slice(&input_buffer)?;
+        analyze(doc);
+        return Ok(());
+    }
 
     if output.is_tty() && output_format.is_binary() {
         eprintln!("Warning: Writing binary data to a terminal.");
     }
-    output_format.emit(&mut output, &doc)?;
+    output_format.emit(&mut output, doc)?;
     Ok(())
+}
+
+fn analyze(doc: &zdoc::Document) {
+    let zdoc::codec::Header {
+        magic: _,
+        version,
+        root_node_index,
+        size,
+        nodes_len,
+        args_len,
+        strings_len,
+        binary_len,
+        ..
+    } = doc.header();
+    eprintln!("Document header:");
+    eprintln!("  Version:      {version}");
+    eprintln!("  Total bytes:  {size:>10}");
+    eprintln!("  String bytes: {strings_len:>10}");
+    eprintln!("  Binary bytes: {binary_len:>10}");
+    eprintln!("  # nodes:      {nodes_len:>10}");
+    eprintln!("  # node args:  {args_len:>10}");
+    eprintln!("  Root index:   {}", root_node_index);
+    eprintln!();
+
+    let mut string_ranges = std::collections::BTreeMap::new();
+    let mut register_duplicate = |range| {
+        let s = doc.get_string(range).unwrap();
+        string_ranges
+            .entry(s)
+            .or_insert(std::collections::HashSet::new())
+            .insert(range);
+    };
+    for node in doc.nodes() {
+        register_duplicate(node.name);
+        register_duplicate(node.ty);
+    }
+    for arg in doc.args() {
+        register_duplicate(arg.name);
+        if let Ok(zdoc::codec::RawValue::String(range)) = zdoc::codec::RawValue::try_from(arg.value)
+        {
+            register_duplicate(range)
+        }
+    }
+
+    let string_duplicates = string_ranges.iter().filter_map(|(s, ranges)| {
+        if ranges.len() > 1 && s.len() <= 128 {
+            Some(s)
+        } else {
+            None
+        }
+    });
+    for dup in string_duplicates {
+        eprintln!("Warning: Duplicate string below the auto-intern limit: {dup}");
+    }
 }
 
 fn main() {

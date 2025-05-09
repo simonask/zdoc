@@ -204,10 +204,18 @@ impl Document {
         self.raw.header()
     }
 
+    /// All nodes in the document.
     #[inline]
     #[must_use]
     pub fn nodes(&self) -> &[codec::Node] {
         self.raw.nodes()
+    }
+
+    /// All arguments in the document.
+    #[inline]
+    #[must_use]
+    pub fn args(&self) -> &[codec::Arg] {
+        self.raw.args()
     }
 
     /// Get the root node.
@@ -230,6 +238,12 @@ impl Document {
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         self.raw.as_bytes()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn get_string(&self, range: codec::StringRange) -> Option<&str> {
+        self.raw.get_string(range).ok()
     }
 }
 
