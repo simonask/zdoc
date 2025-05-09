@@ -24,6 +24,20 @@ impl<'a> Value<'a> {
     pub fn from_document(value: ValueRef<'a>) -> Self {
         value.into()
     }
+
+    #[inline]
+    #[must_use]
+    pub fn into_static(self) -> Value<'static> {
+        match self {
+            Value::Null => Value::Null,
+            Value::Bool(v) => Value::Bool(v),
+            Value::Int(v) => Value::Int(v),
+            Value::Uint(v) => Value::Uint(v),
+            Value::Float(v) => Value::Float(v),
+            Value::String(s) => Value::String(Cow::Owned(s.into_owned())),
+            Value::Binary(b) => Value::Binary(Cow::Owned(b.into_owned())),
+        }
+    }
 }
 
 impl<'a, T: Into<Value<'a>>> From<Option<T>> for Value<'a> {

@@ -105,6 +105,15 @@ impl<'a> Builder<'a> {
 
         cache.raw.build()
     }
+
+    #[inline]
+    #[must_use]
+    pub fn into_static(self) -> Builder<'static> {
+        Builder {
+            root: self.root.into_static(),
+            auto_intern_limit: self.auto_intern_limit,
+        }
+    }
 }
 
 /// Allocation cache for [`Builder`], to amortize allocations between calls to

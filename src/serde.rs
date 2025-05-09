@@ -192,7 +192,7 @@ impl<'de> serde::de::IntoDeserializer<'de, Error> for &'de crate::builder::Node<
 #[cfg(feature = "alloc")]
 mod tests {
     use alloc::{
-        borrow::{Cow, ToOwned as _},
+        borrow::ToOwned as _,
         boxed::Box,
         collections::btree_map::BTreeMap,
         string::{String, ToString as _},
@@ -574,11 +574,11 @@ mod tests {
             assert_eq!(
                 doc.root(),
                 builder::Node {
-                    children: Cow::Borrowed(&[]),
-                    args: Cow::Borrowed(&[builder::Arg {
+                    children: Vec::new(),
+                    args: vec![builder::Arg {
                         name: None,
                         value: expected,
-                    }]),
+                    }],
                     name: "".into(),
                     ty: "".into(),
                 }
@@ -658,11 +658,11 @@ mod tests {
         assert_eq!(
             doc.root(),
             builder::Node {
-                children: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[builder::Arg {
+                children: Vec::new(),
+                args: vec![builder::Arg {
                     name: None,
                     value: builder::Value::String("hello".into()),
-                }]),
+                }],
                 name: "".into(),
                 ty: "".into(),
             }
@@ -683,8 +683,8 @@ mod tests {
         assert_eq!(
             doc.root(),
             builder::Node {
-                children: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[
+                children: Vec::new(),
+                args: vec![
                     builder::Arg {
                         name: None,
                         value: builder::Value::String("hello".into()),
@@ -693,7 +693,7 @@ mod tests {
                         name: None,
                         value: builder::Value::Int(123)
                     }
-                ]),
+                ],
                 name: "".into(),
                 ty: "".into(),
             }
@@ -718,8 +718,8 @@ mod tests {
         assert_eq!(
             doc.root(),
             builder::Node {
-                children: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[
+                children: Vec::new(),
+                args: vec![
                     builder::Arg {
                         name: Some("a".into()),
                         value: builder::Value::Int(1),
@@ -732,7 +732,7 @@ mod tests {
                         name: Some("c".into()),
                         value: builder::Value::Int(3),
                     }
-                ]),
+                ],
                 name: "".into(),
                 ty: "".into()
             }
@@ -762,8 +762,8 @@ mod tests {
         assert_eq!(
             doc.root(),
             builder::Node {
-                children: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[
+                children: Vec::new(),
+                args: vec![
                     builder::Arg {
                         name: Some("A".into()),
                         value: builder::Value::Int(1),
@@ -776,7 +776,7 @@ mod tests {
                         name: Some("C".into()),
                         value: builder::Value::Int(3),
                     }
-                ]),
+                ],
                 name: "".into(),
                 ty: "".into()
             }

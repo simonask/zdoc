@@ -172,6 +172,30 @@ pub fn builder_from_yaml_value(value: &serde_yaml::Value) -> Builder<'_> {
     builder_from_yaml_value_with_settings(value, &YamlSettings::default())
 }
 
+/// Convert YAML to [`Builder`] with default settings.
+///
+/// # Errors
+///
+/// If `yaml` is not valid YAML syntax, this returns an error.
+#[inline]
+pub fn builder_from_yaml(yaml: &str) -> Result<Builder<'static>> {
+    builder_from_yaml_with_settings(yaml, &YamlSettings::default())
+}
+
+/// Convert YAML to [`Builder`], which can be modified further.
+///
+/// # Errors
+///
+/// If `yaml` is not valid YAML syntax, this returns an error.
+#[inline]
+pub fn builder_from_yaml_with_settings(
+    yaml: &str,
+    settings: &YamlSettings,
+) -> Result<Builder<'static>> {
+    let yaml = serde_yaml::from_str(yaml).map_err(Error::custom)?;
+    Ok(builder_from_yaml_value_with_settings(&yaml, settings).into_static())
+}
+
 #[must_use]
 #[inline]
 pub fn builder_from_yaml_value_with_settings<'a>(

@@ -288,8 +288,8 @@ mod tests {
         assert_eq!(
             doc.root(),
             builder::Node {
-                children: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[
+                children: Vec::new(),
+                args: vec![
                     builder::Arg {
                         name: Some("a".into()),
                         value: builder::Value::Int(1),
@@ -302,7 +302,7 @@ mod tests {
                         name: Some("c".into()),
                         value: builder::Value::Int(3),
                     }
-                ]),
+                ],
                 name: "".into(),
                 ty: "".into()
             }
